@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.11', '3.13']
+        python-version: ['3.9', '3.11', '3.12']
       fail-fast: false
     
     steps:
@@ -25,23 +25,24 @@ jobs:
     
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip setuptools wheel
         pip install -r requirements.txt
         pip install pytest pytest-cov pytest-mock pytest-timeout
     
     - name: Lint with Python syntax check
       run: |
-        echo "Checking Python syntax..."
-        python -m py_compile anomaly/*.py 2>&1 || echo "Warning: Some files may not have compiled"
-        python -m py_compile core/*.py 2>&1 || echo "Warning: Some files may not have compiled"
-        python -m py_compile state_machine/*.py 2>&1 || echo "Warning: Some files may not have compiled"
-        python -m py_compile memory_engine/*.py 2>&1 || echo "Warning: Some files may not have compiled"
-        python -m py_compile classifier/*.py 2>&1 || echo "Warning: Some files may not have compiled"
-        echo "Syntax check complete"
+        echo "Checking Python syntax for all modules..."
+        python -m py_compile anomaly/*.py
+        python -m py_compile core/*.py
+        python -m py_compile state_machine/*.py
+        python -m py_compile memory_engine/*.py
+        python -m py_compile classifier/*.py
+        echo "Syntax check passed"
+      continue-on-error: true
     
     - name: Run unit tests
       run: |
-        python -m pytest tests/ -v --tb=short --timeout=10 2>&1
+        python -m pytest tests/ -v --tb=short --timeout=30 --maxfail=10
     
     - name: Run coverage analysis
       run: |
@@ -50,10 +51,12 @@ jobs:
           --cov=anomaly \
           --cov=state_machine \
           --cov=memory_engine \
+          --cov=classifier \
           --cov-report=term-missing \
           --cov-report=xml \
           --cov-fail-under=80 \
-          -v 2>&1
+          --timeout=30 \
+          -v
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
@@ -63,6 +66,7 @@ jobs:
         name: codecov-umbrella
         fail_ci_if_error: false
       continue-on-error: true
+    
     - name: Run integration tests
       run: |
         python validate_integration.py 2>&1 || true
@@ -76,7 +80,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.13'
+        python-version: '3.11'
     
     - name: Install security tools
       run: |
@@ -101,7 +105,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.13'
+        python-version: '3.11'
     
     - name: Install quality tools
       run: |

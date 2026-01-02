@@ -1,42 +1,42 @@
-# Updated requirements.txt with pinned, stable versions
+# Updated requirements.txt with Python 3.9-3.13 compatible versions
 
-# Core dependencies
-numpy==1.24.3
-pandas==2.0.3
-scikit-learn==1.8.0
+# Core dependencies - compatible with Python 3.9+
+numpy>=1.21.0,<2.0.0
+pandas>=1.5.0,<3.0.0
+scikit-learn>=1.3.0,<1.8.0
 
 # Streaming and data processing
-pathway==0.7.5
+pathway>=0.7.5
 
 # Web framework
-streamlit==1.28.0
-altair==5.1.2
+streamlit>=1.20.0
+altair>=5.1.0
 
 # API and server
-fastapi==0.104.1
-uvicorn==0.24.0
-pydantic==2.5.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.5.0
 
-# ML and embeddings
-sentence-transformers==2.2.2
-torch==2.1.0
+# ML and embeddings (pytorch is optional for testing)
+sentence-transformers>=2.2.0
 
 # Utilities
-python-dateutil==2.8.2
-pytz==2023.3
+python-dateutil>=2.8.0
+pytz>=2023.0
 
-# Fixed protobuf for Python 3.14 compatibility
-protobuf==3.20.3
+# Protobuf compatibility
+protobuf>=3.20.0
 
 # Testing
-pytest==7.4.3
-pytest-cov==4.1.0
-pytest-asyncio==0.21.1
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+pytest-timeout>=2.4.0
 
 # Code quality
-black==23.11.0
-flake8==6.1.0
-mypy==1.7.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
 
 # Logging
-loguru==0.7.2
+loguru>=0.7.0

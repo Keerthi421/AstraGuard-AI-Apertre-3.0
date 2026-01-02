@@ -10,7 +10,7 @@ from enum import Enum
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Dict, Optional, List
-from threading import Lock
+from threading import Lock, RLock
 
 logger = logging.getLogger(__name__)
 
@@ -60,26 +60,27 @@ class SystemHealthMonitor:
     """
     
     _instance: Optional['SystemHealthMonitor'] = None
-    _lock = Lock()
+    _init_lock = Lock()
     
     def __new__(cls):
-        """Implement singleton pattern."""
+        """Implement singleton pattern with proper locking."""
         if cls._instance is None:
-            with cls._lock:
+            with cls._init_lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
     
     def __init__(self):
-        """Initialize health monitor."""
-        if self._initialized:
+        """Initialize health monitor (idempotent)."""
+        if getattr(self, '_initialized', False):
             return
         
         self._initialized = True
         self._components: Dict[str, ComponentHealth] = {}
-        self._lock = Lock()
+        self._component_lock = RLock()  # Use RLock for reentrant access
         self._system_status = HealthStatus.HEALTHY
+        logger.debug("SystemHealthMonitor initialized")
     
     def register_component(self, name: str, metadata: Optional[Dict] = None):
         """
@@ -89,7 +90,7 @@ class SystemHealthMonitor:
             name: Component name
             metadata: Optional metadata about the component
         """
-        with self._lock:
+        with self._component_lock:
             self._components[name] = ComponentHealth(
                 name=name,
                 status=HealthStatus.HEALTHY,
@@ -106,7 +107,7 @@ class SystemHealthMonitor:
             component: Component name
             metadata: Optional metadata update
         """
-        with self._lock:
+        with self._component_lock:
             if component not in self._components:
                 self.register_component(component, metadata)
             
@@ -131,7 +132,7 @@ class SystemHealthMonitor:
             fallback_active: Whether fallback is active
             metadata: Optional metadata update
         """
-        with self._lock:
+        with self._component_lock:
             if component not in self._components:
                 self.register_component(component, metadata)
             
@@ -158,7 +159,7 @@ class SystemHealthMonitor:
             error_msg: Optional error message
             metadata: Optional metadata update
         """
-        with self._lock:
+        with self._component_lock:
             if component not in self._components:
                 self.register_component(component, metadata)
             
@@ -199,7 +200,7 @@ class SystemHealthMonitor:
         Returns:
             ComponentHealth or None if not registered
         """
-        with self._lock:
+        with self._component_lock:
             return self._components.get(component)
     
     def get_all_health(self) -> Dict[str, Dict]:
@@ -209,7 +210,7 @@ class SystemHealthMonitor:
         Returns:
             Dictionary mapping component names to their health dicts
         """
-        with self._lock:
+        with self._component_lock:
             return {name: health.to_dict() for name, health in self._components.items()}
     
     def get_system_status(self) -> Dict:
@@ -219,7 +220,7 @@ class SystemHealthMonitor:
         Returns:
             Dictionary with system-level health info
         """
-        with self._lock:
+        with self._component_lock:
             healthy_count = sum(1 for c in self._components.values() 
                               if c.status == HealthStatus.HEALTHY)
             degraded_count = sum(1 for c in self._components.values() 
@@ -241,17 +242,17 @@ class SystemHealthMonitor:
     
     def is_system_healthy(self) -> bool:
         """Check if system is in healthy state."""
-        with self._lock:
+        with self._component_lock:
             return self._system_status == HealthStatus.HEALTHY
     
     def is_system_degraded(self) -> bool:
         """Check if system is in degraded state."""
-        with self._lock:
+        with self._component_lock:
             return self._system_status == HealthStatus.DEGRADED
     
     def reset(self):
         """Reset all health monitoring (for testing)."""
-        with self._lock:
+        with self._component_lock:
             self._components.clear()
             self._system_status = HealthStatus.HEALTHY
             logger.info("Health monitor reset")

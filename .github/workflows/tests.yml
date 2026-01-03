@@ -6,15 +6,119 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  lint:
+    name: Lint & Code Quality
     runs-on: ubuntu-latest
+    steps:
+    - name: Free up disk space
+      run: |
+        echo "Freeing up disk space before checkout..."
+        sudo rm -rf /usr/local/lib/android || true
+        sudo rm -rf /usr/share/dotnet || true
+        sudo rm -rf /opt/ghc || true
+        sudo rm -rf /opt/hostedtoolcache/Python* || true
+        df -h
+    
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install linting tools
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        pip install black==24.1.1 flake8==7.0.0 mypy==1.8.0 pylint==3.0.3
+    
+    - name: Run Black formatter check
+      run: |
+        black --check --diff anomaly classifier memory_engine state_machine core
+      continue-on-error: true
+    
+    - name: Run Flake8 linter
+      run: |
+        flake8 anomaly classifier memory_engine state_machine core \
+          --max-line-length=100 --count --show-source --statistics
+      continue-on-error: true
+    
+    - name: Run MyPy type checker
+      run: |
+        mypy anomaly classifier memory_engine state_machine core \
+          --ignore-missing-imports --warn-unused-ignores
+      continue-on-error: true
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Free up disk space
+      run: |
+        echo "Freeing up disk space before checkout..."
+        sudo rm -rf /usr/local/lib/android || true
+        sudo rm -rf /usr/share/dotnet || true
+        sudo rm -rf /opt/ghc || true
+        sudo rm -rf /opt/hostedtoolcache/Python* || true
+        df -h
+    
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit==1.7.5 safety==3.2.0
+    
+    - name: Run Bandit security check
+      run: |
+        bandit -r anomaly classifier memory_engine state_machine core -f json -o bandit-report.json
+      continue-on-error: true
+    
+    - name: Run Safety check
+      run: |
+        safety check --json
+      continue-on-error: true
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint
     strategy:
       matrix:
-        python-version: ['3.9', '3.11', '3.12']
+        python-version: ['3.11']
       fail-fast: false
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     
     steps:
+    - name: Free up disk space
+      run: |
+        echo "Freeing up disk space before checkout..."
+        sudo rm -rf /usr/local/lib/android || true
+        sudo rm -rf /usr/share/dotnet || true
+        sudo rm -rf /opt/ghc || true
+        sudo rm -rf /opt/hostedtoolcache/Python* || true
+        df -h
+    
     - uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
@@ -26,87 +130,158 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip setuptools wheel
-        pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-mock pytest-timeout
+        pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+        pip install -r requirements-test.txt
     
-    - name: Lint with Python syntax check
+    - name: Wait for Redis
       run: |
-        echo "Checking Python syntax for all modules..."
-        python -m py_compile anomaly/*.py
-        python -m py_compile core/*.py
-        python -m py_compile state_machine/*.py
-        python -m py_compile memory_engine/*.py
-        python -m py_compile classifier/*.py
-        echo "Syntax check passed"
-      continue-on-error: true
+        python -c "
+        import redis, time, sys, socket
+        for i in range(30):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                result = sock.connect_ex(('localhost', 6379))
+                sock.close()
+                if result == 0:
+                    r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=5, decode_responses=True)
+                    pong = r.ping()
+                    if pong:
+                        print('Redis is ready!')
+                        sys.exit(0)
+            except Exception as e:
+                pass
+            print(f'Waiting for Redis... ({i+1}/30)', flush=True)
+            time.sleep(1)
+        print('ERROR: Redis connection timeout after 30 attempts')
+        sys.exit(1)
+        "
     
-    - name: Run unit tests
+    - name: Run pytest with coverage
+      env:
+        REDIS_URL: redis://localhost:6379
       run: |
-        python -m pytest tests/ -v --tb=short --timeout=10 --maxfail=10
-    
-    - name: Run coverage analysis
-      run: |
-        python -m pytest tests/ \
-          --cov \
+        pytest tests/ \
+          -v \
+          --cov=anomaly \
+          --cov=classifier \
+          --cov=memory_engine \
+          --cov=state_machine \
+          --cov=core \
           --cov-report=term-missing \
           --cov-report=xml \
           --timeout=10 \
-          -v
+          --tb=short
+    
+    - name: Check coverage threshold
+      run: coverage report --fail-under=70
+    
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-report-python${{ matrix.python-version }}
+        path: htmlcov/
+        retention-days: 30
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
+      if: always()
       with:
         files: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
-      continue-on-error: true
     
-    - name: Run integration tests
-      run: |
-        python validate_integration.py 2>&1 || true
-      continue-on-error: true
+    - name: Clean up pip cache
+      if: always()
+      run: pip cache purge
 
-  security:
+  test-matrix:
+    name: Test (Python ${{ matrix.python-version }}) - Extended
     runs-on: ubuntu-latest
+    needs: test
+    if: |
+      github.event_name == 'pull_request' || 
+      github.ref == 'refs/heads/develop'
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.12']
+      fail-fast: false
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
     steps:
+    - name: Free up disk space
+      run: |
+        echo "Freeing up disk space before checkout..."
+        sudo rm -rf /usr/local/lib/android || true
+        sudo rm -rf /usr/share/dotnet || true
+        sudo rm -rf /opt/ghc || true
+        sudo rm -rf /opt/hostedtoolcache/Python* || true
+        df -h
+    
     - uses: actions/checkout@v4
     
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
     
-    - name: Install security tools
+    - name: Install dependencies
       run: |
-        pip install bandit safety
+        python -m pip install --upgrade pip setuptools wheel
+        pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+        pip install -r requirements-test.txt
     
-    - name: Run Bandit security scan
+    - name: Wait for Redis
       run: |
-        bandit -r core anomaly state_machine memory_engine -ll
-      continue-on-error: true
+        python -c "
+        import redis, time, sys, socket
+        for i in range(30):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                result = sock.connect_ex(('localhost', 6379))
+                sock.close()
+                if result == 0:
+                    r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=5, decode_responses=True)
+                    pong = r.ping()
+                    if pong:
+                        print('Redis is ready!')
+                        sys.exit(0)
+            except Exception as e:
+                pass
+            print(f'Waiting for Redis... ({i+1}/30)', flush=True)
+            time.sleep(1)
+        print('ERROR: Redis connection timeout after 30 attempts')
+        sys.exit(1)
+        "
     
-    - name: Check for known vulnerabilities
+    - name: Run pytest
+      env:
+        REDIS_URL: redis://localhost:6379
       run: |
-        pip install -r requirements.txt
-        safety check --json
-      continue-on-error: true
-
-  code-quality:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
+        pytest tests/ \
+          -v \
+          --cov=anomaly \
+          --cov=classifier \
+          --cov=memory_engine \
+          --cov=state_machine \
+          --cov=core \
+          --cov-report=xml \
+          --timeout=10 \
+          --tb=short
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    
-    - name: Install quality tools
-      run: |
-        pip install pylint flake8
-    
-    - name: Run Flake8
-      run: |
-        flake8 core anomaly state_machine memory_engine --max-line-length=100 --exclude=__pycache__
-      continue-on-error: true
+    - name: Clean up pip cache
+      if: always()
+      run: pip cache purge

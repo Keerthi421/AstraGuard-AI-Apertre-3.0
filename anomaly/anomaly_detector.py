@@ -77,7 +77,7 @@ async def _load_model_impl() -> bool:
 
     if os.path.exists(MODEL_PATH):
         with open(MODEL_PATH, "rb") as f:
-            _MODEL = pickle.load(f)
+            _MODEL = pickle.load(f)  # noqa: S301 - model file is trusted and part of deployment
         _MODEL_LOADED = True
         _USING_HEURISTIC_MODE = False
         health_monitor.mark_healthy(
@@ -146,17 +146,13 @@ def load_model() -> bool:
             asyncio.set_event_loop(loop)
 
         # Call through retry (handles transient) then circuit breaker (handles cascading)
-        try:
-            result = loop.run_until_complete(
-                _model_loader_cb.call(
-                    _load_model_with_retry,  # Retry wrapper
-                    fallback=_load_model_fallback,
-                )
+        result = loop.run_until_complete(
+            _model_loader_cb.call(
+                _load_model_with_retry,  # Retry wrapper
+                fallback=_load_model_fallback,
             )
-            return result
-        except TypeError:
-            # If circuit breaker call doesn't return awaitable, use fallback
-            return _load_model_fallback()
+        )
+        return result
 
     except CircuitOpenError as e:
         logger.error(f"Circuit breaker open: {e}")
@@ -287,16 +283,15 @@ def detect_anomaly(data: Dict) -> Tuple[bool, float]:
 
         # Use heuristic fallback
         is_anomalous, score = _detect_anomaly_heuristic(data)
-        (
+        if _USING_HEURISTIC_MODE:
             health_monitor.mark_degraded(
                 "anomaly_detector",
                 error_msg="Using heuristic detection",
                 fallback_active=True,
                 metadata={"mode": "heuristic"},
             )
-            if _USING_HEURISTIC_MODE
-            else health_monitor.mark_healthy("anomaly_detector")
-        )
+        else:
+            health_monitor.mark_healthy("anomaly_detector")
 
         # Record metrics for heuristic
         ANOMALY_DETECTIONS_TOTAL.labels(detector_type="heuristic").inc()

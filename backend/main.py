@@ -17,9 +17,10 @@ API Endpoints:
 
 import logging
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -46,6 +47,59 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# SECURITY CONFIGURATION
+# ============================================================================
+
+# Chaos engineering endpoints are only available when explicitly enabled
+CHAOS_ENABLED = os.getenv("ENABLE_CHAOS", "false").lower() == "true"
+CHAOS_ADMIN_KEY = os.getenv("CHAOS_ADMIN_KEY", "")
+
+
+async def verify_chaos_admin_access(x_chaos_admin_key: str = Header(None)) -> None:
+    """Verify admin access to chaos engineering endpoints.
+    
+    Validates:
+    1. Chaos engineering is explicitly enabled (ENABLE_CHAOS=true)
+    2. Caller provides correct admin API key (CHAOS_ADMIN_KEY)
+    
+    Args:
+        x_chaos_admin_key: Admin API key from X-Chaos-Admin-Key header
+        
+    Raises:
+        HTTPException: 403 if chaos is disabled, 401 if auth fails
+    """
+    if not CHAOS_ENABLED:
+        logger.warning(
+            "🚫 Unauthorized chaos injection attempt - feature disabled. "
+            "Set ENABLE_CHAOS=true to enable."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chaos engineering is disabled. Set ENABLE_CHAOS=true to enable.",
+        )
+    
+    if not CHAOS_ADMIN_KEY:
+        logger.error(
+            "🚫 Chaos engineering enabled but CHAOS_ADMIN_KEY not configured. "
+            "Set CHAOS_ADMIN_KEY environment variable for security."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chaos endpoint not properly configured.",
+        )
+    
+    if not x_chaos_admin_key or x_chaos_admin_key != CHAOS_ADMIN_KEY:
+        logger.warning(
+            "🚫 Unauthorized chaos injection attempt - invalid admin key"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing admin API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 
 # ============================================================================
 # GLOBAL INSTANCES
@@ -372,10 +426,15 @@ def create_app() -> FastAPI:
     # ========== CHAOS ENGINEERING ENDPOINTS (Issue #19) ==========
 
     @app.post("/_chaos/{fault_type}")
-    async def inject_chaos(fault_type: str):
+    async def inject_chaos(
+        fault_type: str,
+        _verified: None = Depends(verify_chaos_admin_access),
+    ):
         """Inject controlled chaos for resilience testing.
 
-        **ADMIN ONLY** - Internal endpoint for chaos engineering tests.
+        **ADMIN ONLY** - Requires:
+        - ENABLE_CHAOS=true environment variable
+        - Valid CHAOS_ADMIN_KEY in request header (X-Chaos-Admin-Key)
 
         Supported fault types:
         - model_loader: Simulate model loading failure
@@ -391,10 +450,10 @@ def create_app() -> FastAPI:
         from backend.chaos_engine import ChaosEngine
 
         try:
+            logger.info(f"🧪 Chaos injection starting: {fault_type}")
             engine = ChaosEngine()
             await engine.startup()
 
-            logger.info(f"🧪 Chaos injection starting: {fault_type}")
             result = await engine.inject_faults(fault_type, duration_seconds=30)
 
             await engine.shutdown()

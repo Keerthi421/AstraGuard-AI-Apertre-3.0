@@ -10,8 +10,7 @@ services:
     container_name: astra-chaos-redis
     ports:
       - "6379:6379"
-    environment:
-      - REDIS_APPENDONLY=yes
+    command: redis-server --appendonly yes
     volumes:
       - chaos_redis_data:/data
     networks:

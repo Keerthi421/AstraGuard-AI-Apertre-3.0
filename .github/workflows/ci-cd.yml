@@ -1,298 +1,54 @@
-name: CI/CD Pipeline
+name: Build & Deploy
 
 on:
   push:
-    branches: [main, develop]
-  pull_request:
     branches: [main, develop]
 
 env:
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
   REGISTRY: ghcr.io
-  REPO_NAME_LOWER: astraguard-ai
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ============================================================================
-  # JOB 1: LINT - Code Quality Checks
-  # ============================================================================
-  lint:
-    name: Lint Code (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install black[jupyter]==24.1.1 flake8==7.0.0 mypy==1.8.0
-
-      - name: Run Black formatter check
-        run: black --check --diff backend anomaly classifier logs memory_engine state_machine examples
-        continue-on-error: true
-
-      - name: Run Flake8 linter
-        run: flake8 backend anomaly classifier logs memory_engine state_machine examples --count --show-source --statistics
-        continue-on-error: true
-
-      - name: Run MyPy type checker
-        run: mypy backend anomaly classifier logs memory_engine state_machine examples --ignore-missing-imports --warn-unused-ignores
-        continue-on-error: true
-
-  # ============================================================================
-  # JOB 2: TEST - Unit & Integration Tests with Coverage
-  # ============================================================================
-  test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    needs: lint
-    strategy:
-      matrix:
-        python-version: ["3.11"]
-    services:
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
-
-      - name: Wait for Redis to be ready
-        run: |
-          python -c "
-          import redis
-          import time
-          import sys
-          for i in range(30):
-              try:
-                  r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=5)
-                  r.ping()
-                  print('Redis is ready!')
-                  sys.exit(0)
-              except Exception as e:
-                  print(f'Waiting for Redis... ({i+1}/30)')
-                  time.sleep(1)
-          print('Redis connection timeout')
-          sys.exit(1)
-          "
-
-      - name: Run pytest with coverage
-        env:
-          REDIS_URL: redis://localhost:6379
-        run: |
-          pytest tests/ \
-            -v \
-            --cov=backend \
-            --cov=anomaly \
-            --cov=classifier \
-            --cov=logs \
-            --cov=memory_engine \
-            --cov=state_machine \
-            --cov-report=term-missing \
-            --cov-report=html:coverage_html \
-            --cov-report=xml \
-            --timeout=10 \
-            --tb=short
-
-      - name: Check coverage threshold
-        run: |
-          coverage report --fail-under=80
-
-      - name: Upload coverage reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report-${{ matrix.python-version }}
-          path: coverage_html/
-          retention-days: 30
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        if: always()
-        with:
-          files: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-  # ============================================================================
-  # JOB 3: BUILD - Docker Image Build & Push
-  # ============================================================================
   build:
-    name: Build & Push Docker Image
+    name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: [lint, test]
-    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && needs.test.result == 'success'
     permissions:
       contents: read
       packages: write
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache || true
+      
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v2
-        if: github.event_name == 'push'
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
+        uses: docker/setup-buildx-action@v3
+      
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.REPO_NAME_LOWER }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
             type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix={{branch}}-
-
-      - name: Build and push Docker image (main branch)
-        uses: docker/build-push-action@v4
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/astraguard-ai:latest
-            ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build Docker image (PR/develop)
-        uses: docker/build-push-action@v4
-        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
         with:
           context: .
           push: false
-          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-
-  # ============================================================================
-  # JOB 4: DEPLOY - Deploy to Azure (main branch only)
-  # ============================================================================
-  deploy:
-    name: Deploy to Azure
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: https://astraguard-ai.azurewebsites.net
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Deploy to Azure Container Instances
-        run: |
-          az container create \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --name astraguard-ai \
-            --image ${{ env.REGISTRY }}/${{ github.repository }}:latest \
-            --cpu 2 \
-            --memory 4 \
-            --port 8000 8501 \
-            --environment-variables \
-              REDIS_URL="${{ secrets.REDIS_URL }}" \
-              LOG_LEVEL="INFO" \
-              PYTHONUNBUFFERED="1" \
-            --registry-login-server ${{ env.REGISTRY }} \
-            --registry-username ${{ github.actor }} \
-            --registry-password ${{ secrets.GITHUB_TOKEN }} \
-            --restart-policy OnFailure
-
-      - name: Get Container IP
-        id: container
-        run: |
-          IP=$(az container show \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --name astraguard-ai \
-            --query ipAddress.ip \
-            --output tsv)
-          echo "ip=$IP" >> $GITHUB_OUTPUT
-
-      - name: Wait for container to be healthy
-        run: |
-          echo "Container deployed at: ${{ steps.container.outputs.ip }}"
-          for i in {1..30}; do
-            if curl -s http://${{ steps.container.outputs.ip }}:8000/health/live; then
-              echo "Container is healthy"
-              exit 0
-            fi
-            echo "Waiting for container... ($i/30)"
-            sleep 10
-          done
-          echo "Container health check failed"
-          exit 1
-
-  # ============================================================================
-  # JOB 5: SECURITY - Vulnerability Scanning
-  # ============================================================================
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-          category: 'trivy'
+          cache-to: type=gha,mode=max

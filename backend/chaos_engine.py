@@ -91,6 +91,13 @@ class ChaosEngine:
         """Clean up resources."""
         if self.session:
             await self.session.close()
+            self.session = None
+
+    async def _ensure_session(self):
+        """Ensure session is initialized; create if needed."""
+        if not self.session:
+            logger.debug("Session not initialized, creating new ClientSession")
+            self.session = aiohttp.ClientSession()
 
     async def inject_faults(self, fault_type: str, duration_seconds: int = 30) -> bool:
         """Inject controlled faults into system.
@@ -102,6 +109,9 @@ class ChaosEngine:
         Returns:
             True if injection succeeded
         """
+        # Ensure session is available before proceeding
+        await self._ensure_session()
+
         CHAOS_INJECTIONS.labels(fault_type=fault_type).inc()
         CHAOS_ACTIVE.labels(fault_type=fault_type).set(1)
         self.chaos_active = True
@@ -200,7 +210,7 @@ class ChaosEngine:
             duration_seconds: Duration of failure
 
         Returns:
-            True if system handled failure gracefully
+            True if system detected and handled failure with graceful degradation
         """
         logger.info(f"Injecting Redis failure for {duration_seconds}s")
         start_time = time.time()
@@ -226,7 +236,7 @@ class ChaosEngine:
         logger.info(
             f"Redis failure injection complete (degradation detected: {degradation_detected})"
         )
-        return degradation_detected or True  # Graceful degradation or fallback
+        return degradation_detected
 
     async def test_circuit_breaker(self) -> bool:
         """Test circuit breaker resilience.
@@ -237,6 +247,8 @@ class ChaosEngine:
         Returns:
             True if circuit breaker is available and operational
         """
+        # Ensure session is available
+        await self._ensure_session()
         logger.info("Starting circuit breaker chaos test")
         try:
             # Inject model loader failure
@@ -273,6 +285,8 @@ class ChaosEngine:
         Returns:
             True if retries handled transient failures
         """
+        # Ensure session is available
+        await self._ensure_session()
         logger.info("Starting retry logic chaos test")
         try:
             result = await self.inject_faults("network_latency", duration_seconds=20)
@@ -300,6 +314,8 @@ class ChaosEngine:
         Returns:
             True if recovery orchestrator is running and configured
         """
+        # Ensure session is available
+        await self._ensure_session()
         logger.info("Starting recovery orchestrator chaos test")
         try:
             # Inject Redis failure to trigger recovery actions
@@ -341,6 +357,8 @@ class ChaosEngine:
         Returns:
             True if consensus mechanisms maintained
         """
+        # Ensure session is available
+        await self._ensure_session()
         logger.info("Starting cluster consensus chaos test")
         try:
             # Check current leader

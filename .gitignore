@@ -32,3 +32,10 @@ ENV/
 .env
 .env.local
 .env.*.local
+
+# Test Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+coverage*.xml

@@ -67,46 +67,47 @@ distributed_coordinator: DistributedResilienceCoordinator = None
 async def lifespan(app: FastAPI):
     """
     FastAPI lifespan context manager.
-    
+
     Startup: Initialize monitoring systems
     Shutdown: Cleanup resources
     """
     # ========== STARTUP ==========
     logger.info("🚀 AstraGuard AI Backend starting...")
-    
+
     global health_monitor, fallback_manager, component_health, redis_client, distributed_coordinator
-    
+
     try:
         # Initialize component health monitor
         component_health = SystemHealthMonitor()
-        
+
         # Initialize health monitor (Issue #16)
         health_monitor = HealthMonitor(
             circuit_breaker=None,  # Will integrate with CB from Issue #14
-            retry_tracker=None,    # Will integrate with Retry from Issue #15
+            retry_tracker=None,  # Will integrate with Retry from Issue #15
             failure_window_seconds=3600,
         )
-        
+
         # Initialize fallback manager (Issue #16)
         fallback_manager = FallbackManager(
             circuit_breaker=None,
             anomaly_detector=None,
             heuristic_detector=None,
         )
-        
+
         # Initialize recovery orchestrator (Issue #17)
         recovery_orchestrator = RecoveryOrchestrator(
             health_monitor=health_monitor,
             fallback_manager=fallback_manager,
             config_path="config/recovery.yaml",
         )
-        
+
         # Initialize Redis client (Issue #18)
         import os
+
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
         redis_client = RedisClient(redis_url=redis_url)
         redis_connected = await redis_client.connect()
-        
+
         if redis_connected:
             # Initialize distributed coordinator (Issue #18)
             distributed_coordinator = DistributedResilienceCoordinator(
@@ -119,10 +120,10 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Distributed Resilience Coordinator initialized")
         else:
             logger.warning("⚠️  Redis connection failed, running in standalone mode")
-        
+
         # Register health monitor with FastAPI
         set_health_monitor(health_monitor)
-        
+
         # Register core components
         component_health.register_component(
             "anomaly_detector",
@@ -136,34 +137,34 @@ async def lifespan(app: FastAPI):
             "policy_engine",
             metadata={"version": "1.0", "type": "rule_engine"},
         )
-        
+
         logger.info("✅ Health Monitor initialized")
         logger.info("✅ Fallback Manager initialized")
         logger.info("✅ Component Health Monitor initialized")
-        
+
         # Start background health polling task
         health_task = asyncio.create_task(background_health_polling())
         logger.info("✅ Background health polling started")
-        
+
         # Start recovery orchestrator background task (Issue #17)
         recovery_task = asyncio.create_task(recovery_orchestrator.run())
         logger.info("✅ Recovery Orchestrator started")
-        
+
         yield  # Application runs here
-        
+
         # ========== SHUTDOWN ==========
         logger.info("🛑 AstraGuard AI Backend shutting down...")
-        
+
         # Shutdown distributed coordinator
         if distributed_coordinator:
             await distributed_coordinator.shutdown()
             logger.info("✅ Distributed Coordinator shutdown")
-        
+
         # Close Redis connection
         if redis_client and redis_client.connected:
             await redis_client.close()
             logger.info("✅ Redis connection closed")
-        
+
         health_task.cancel()
         recovery_task.cancel()
         try:
@@ -174,10 +175,10 @@ async def lifespan(app: FastAPI):
             await recovery_task
         except asyncio.CancelledError:
             pass
-        
+
         logger.info("✅ Background tasks cancelled")
         logger.info("✅ Cleanup complete")
-    
+
     except Exception as e:
         logger.error(f"❌ Startup error: {e}", exc_info=True)
         raise
@@ -191,32 +192,32 @@ async def lifespan(app: FastAPI):
 async def background_health_polling():
     """
     Background task for periodic health evaluation and cascade triggering.
-    
+
     Runs every 10 seconds:
     1. Evaluates current system health
     2. Triggers fallback cascade if needed
     3. Updates metrics
     """
     poll_interval = 10  # seconds
-    
+
     logger.info(f"Background health polling started (interval: {poll_interval}s)")
-    
+
     while True:
         try:
             await asyncio.sleep(poll_interval)
-            
+
             if not health_monitor or not fallback_manager:
                 continue
-            
+
             # Get current health state
             state = await health_monitor.get_comprehensive_state()
-            
+
             # Evaluate cascade
             new_mode = await fallback_manager.cascade(state)
-            
+
             # Log if mode changed
             logger.debug(f"Fallback mode: {new_mode.value}")
-        
+
         except asyncio.CancelledError:
             logger.info("Background health polling stopped")
             break
@@ -231,14 +232,14 @@ async def background_health_polling():
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application."""
-    
+
     app = FastAPI(
         title="AstraGuard AI Backend",
         description="Reliability suite backend with observability",
         version="1.0.0",
         lifespan=lifespan,
     )
-    
+
     # Add CORS middleware for frontend
     app.add_middleware(
         CORSMiddleware,
@@ -247,12 +248,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # ========== ROUTES ==========
-    
+
     # Health monitor routes (Issue #16)
     app.include_router(health_router)
-    
+
     # Root endpoint
     @app.get("/")
     async def root():
@@ -265,133 +266,151 @@ def create_app() -> FastAPI:
             "metrics": "/health/metrics",
             "recovery": "/recovery/status",
         }
-    
+
     # Status endpoint
     @app.get("/status")
     async def status():
         """Get backend status."""
         if not health_monitor:
             return {"status": "initializing"}
-        
+
         state = await health_monitor.get_comprehensive_state()
         return {
             "status": "running",
             "system_health": state.get("system", {}).get("status"),
-            "fallback_mode": fallback_manager.get_mode_string() if fallback_manager else "unknown",
+            "fallback_mode": (
+                fallback_manager.get_mode_string() if fallback_manager else "unknown"
+            ),
             "uptime_seconds": state.get("uptime_seconds", 0),
         }
-    
+
     # Recovery Orchestrator endpoints (Issue #17)
     @app.get("/recovery/status")
     async def recovery_status():
         """Get recovery orchestrator status and metrics."""
         if not recovery_orchestrator:
             return {"error": "Recovery orchestrator not initialized"}
-        
+
         return {
             "status": "running" if recovery_orchestrator._running else "stopped",
             "metrics": recovery_orchestrator.get_metrics(),
             "cooldowns": recovery_orchestrator.get_cooldown_status(),
             "last_actions": recovery_orchestrator.get_action_history(limit=10),
         }
-    
+
     @app.get("/recovery/history")
     async def recovery_history(limit: int = 50):
         """Get recovery action history."""
         if not recovery_orchestrator:
             return {"error": "Recovery orchestrator not initialized"}
-        
+
         return {"actions": recovery_orchestrator.get_action_history(limit=limit)}
-    
+
     @app.get("/recovery/cooldowns")
     async def recovery_cooldowns():
         """Get current cooldown status for recovery actions."""
         if not recovery_orchestrator:
             return {"error": "Recovery orchestrator not initialized"}
-        
+
         return recovery_orchestrator.get_cooldown_status()
-    
+
     # Distributed Coordinator endpoints (Issue #18)
     @app.get("/cluster/consensus")
     async def cluster_consensus():
         """Get quorum-based cluster consensus decision."""
         if not distributed_coordinator:
-            return {"error": "Distributed coordinator not initialized (standalone mode)"}
-        
+            return {
+                "error": "Distributed coordinator not initialized (standalone mode)"
+            }
+
         consensus = await distributed_coordinator.get_cluster_consensus()
         return consensus.dict()
-    
+
     @app.get("/cluster/health")
     async def cluster_health():
         """Get aggregated health status of entire cluster."""
         if not distributed_coordinator:
-            return {"error": "Distributed coordinator not initialized (standalone mode)"}
-        
+            return {
+                "error": "Distributed coordinator not initialized (standalone mode)"
+            }
+
         return await distributed_coordinator.get_cluster_health()
-    
+
     @app.get("/cluster/metrics")
     async def cluster_metrics():
         """Get distributed coordinator metrics."""
         if not distributed_coordinator:
-            return {"error": "Distributed coordinator not initialized (standalone mode)"}
-        
+            return {
+                "error": "Distributed coordinator not initialized (standalone mode)"
+            }
+
         return await distributed_coordinator.get_metrics()
-    
+
     @app.get("/cluster/leader")
     async def cluster_leader():
         """Get current cluster leader."""
         if not distributed_coordinator:
-            return {"error": "Distributed coordinator not initialized (standalone mode)"}
-        
+            return {
+                "error": "Distributed coordinator not initialized (standalone mode)"
+            }
+
         leader = await redis_client.get_leader()
         return {
             "leader": leader or "NONE",
             "is_leader": distributed_coordinator.is_leader,
             "instance_id": distributed_coordinator.instance_id,
         }
-    
+
     # ========== CHAOS ENGINEERING ENDPOINTS (Issue #19) ==========
-    
+
     @app.post("/_chaos/{fault_type}")
     async def inject_chaos(fault_type: str):
         """Inject controlled chaos for resilience testing.
-        
+
         **ADMIN ONLY** - Internal endpoint for chaos engineering tests.
-        
+
         Supported fault types:
         - model_loader: Simulate model loading failure
         - network_latency: Inject network latency
         - redis_failure: Simulate Redis service failure
-        
+
         Args:
             fault_type: Type of fault to inject
-            
+
         Returns:
             Status of chaos injection
         """
         from backend.chaos_engine import ChaosEngine
-        
+
         try:
             engine = ChaosEngine()
             await engine.startup()
-            
+
             logger.info(f"🧪 Chaos injection starting: {fault_type}")
             result = await engine.inject_faults(fault_type, duration_seconds=30)
-            
+
             await engine.shutdown()
-            
+
             if result:
                 logger.info(f"✅ Chaos injection completed: {fault_type}")
-                return {"status": "success", "fault_type": fault_type, "duration_seconds": 30}
+                return {
+                    "status": "success",
+                    "fault_type": fault_type,
+                    "duration_seconds": 30,
+                }
             else:
                 logger.warning(f"⚠️  Chaos injection failed: {fault_type}")
-                return {"status": "failed", "fault_type": fault_type, "error": "Injection did not recover within timeout"}
+                return {
+                    "status": "failed",
+                    "fault_type": fault_type,
+                    "error": "Injection did not recover within timeout",
+                }
         except Exception as e:
             logger.error(f"❌ Chaos injection error: {e}", exc_info=True)
             return {"status": "error", "fault_type": fault_type, "error": str(e)}
-    
+
     # ========== ERROR HANDLERS ==========
-    
+
     @app.exception_handler(Exception)
     async def general_exception_handler(request, exc):
         """Handle general exceptions."""
@@ -400,7 +419,7 @@ def create_app() -> FastAPI:
             "error": "Internal server error",
             "detail": str(exc),
         }
-    
+
     return app
 
 
@@ -416,7 +435,7 @@ app = create_app()
 
 if __name__ == "__main__":
     logger.info("Starting AstraGuard AI Backend...")
-    
+
     uvicorn.run(
         app,
         host="0.0.0.0",

@@ -24,7 +24,7 @@ class RedisClient:
 
     def __init__(self, redis_url: str = "redis://localhost:6379"):
         """Initialize Redis client.
-        
+
         Args:
             redis_url: Redis connection URL (default: localhost:6379)
         """
@@ -34,7 +34,7 @@ class RedisClient:
 
     async def connect(self) -> bool:
         """Establish connection to Redis.
-        
+
         Returns:
             True if successful, False otherwise
         """
@@ -62,14 +62,14 @@ class RedisClient:
 
     async def leader_election(self, instance_id: str, ttl: int = 30) -> bool:
         """Attempt leader election with TTL-based expiry.
-        
+
         Uses SET with NX (only if not exists) to ensure only one leader.
         TTL ensures automatic failover on instance failure.
-        
+
         Args:
             instance_id: Unique instance identifier
             ttl: Time to live for leadership (seconds, default: 30)
-            
+
         Returns:
             True if elected leader, False if leader already exists
         """
@@ -82,7 +82,7 @@ class RedisClient:
                 "astra:resilience:leader",
                 instance_id,
                 nx=True,  # Only set if key doesn't exist
-                ex=ttl,   # Set expiry
+                ex=ttl,  # Set expiry
             )
             if result:
                 logger.info(f"Instance {instance_id} elected as leader (TTL: {ttl}s)")
@@ -95,14 +95,14 @@ class RedisClient:
 
     async def renew_leadership(self, instance_id: str, ttl: int = 30) -> bool:
         """Renew leadership TTL if currently leader.
-        
+
         Uses atomic Lua script to prevent TOCTOU race condition.
         Script checks if key value equals instance_id, then atomically sets TTL.
-        
+
         Args:
             instance_id: Current instance ID (must match leader)
             ttl: New TTL (seconds)
-            
+
         Returns:
             True if renewed, False if not leader
         """
@@ -121,7 +121,7 @@ class RedisClient:
                 return 0
             end
             """
-            
+
             # Execute script atomically
             result = await self.redis.eval(
                 lua_script,
@@ -130,13 +130,15 @@ class RedisClient:
                 instance_id,  # ARGV[1]
                 ttl,  # ARGV[2]
             )
-            
+
             renewed = bool(result)
             if renewed:
                 logger.debug(f"Leadership renewed for {instance_id} (TTL: {ttl}s)")
             else:
-                logger.debug(f"Leadership renewal failed for {instance_id} (not current leader)")
-            
+                logger.debug(
+                    f"Leadership renewal failed for {instance_id} (not current leader)"
+                )
+
             return renewed
         except Exception as e:
             logger.error(f"Failed to renew leadership: {e}")
@@ -144,7 +146,7 @@ class RedisClient:
 
     async def get_leader(self) -> Optional[str]:
         """Get current leader instance ID.
-        
+
         Returns:
             Instance ID of current leader, or None if no leader
         """
@@ -160,11 +162,11 @@ class RedisClient:
 
     async def publish_state(self, channel: str, state: Dict[str, Any]) -> int:
         """Publish resilience state to cluster via pub/sub.
-        
+
         Args:
             channel: Channel name (e.g., "astra:resilience:state")
             state: State dictionary to publish
-            
+
         Returns:
             Number of subscribers that received the message
         """
@@ -184,12 +186,12 @@ class RedisClient:
         self, instance_id: str, vote: Dict[str, Any], ttl: int = 30
     ) -> bool:
         """Register instance vote in cluster consensus.
-        
+
         Args:
             instance_id: Instance ID voting
             vote: Vote data (e.g., circuit breaker state, fallback mode)
             ttl: Vote expiry time (seconds)
-            
+
         Returns:
             True if registered, False otherwise
         """
@@ -208,12 +210,14 @@ class RedisClient:
             logger.error(f"Failed to register vote: {e}")
             return False
 
-    async def get_cluster_votes(self, prefix: str = "astra:resilience:vote") -> Dict[str, Any]:
+    async def get_cluster_votes(
+        self, prefix: str = "astra:resilience:vote"
+    ) -> Dict[str, Any]:
         """Retrieve all instance votes for consensus using non-blocking SCAN.
-        
+
         Args:
             prefix: Key prefix for votes (default: astra:resilience:vote)
-            
+
         Returns:
             Dict mapping instance_id to vote data
         """
@@ -225,7 +229,7 @@ class RedisClient:
             pattern = f"{prefix}:*"
             cursor = 0
             keys = []
-            
+
             # SCAN loop accumulates keys until cursor returns to 0
             while True:
                 cursor, batch_keys = await self.redis.scan(
@@ -236,7 +240,7 @@ class RedisClient:
                 keys.extend(batch_keys)
                 if cursor == 0:
                     break  # Iteration complete
-            
+
             if not keys:
                 logger.debug("No votes found in cluster")
                 return {}
@@ -265,10 +269,10 @@ class RedisClient:
 
     async def get_instance_health(self, instance_id: str) -> Optional[Dict]:
         """Get last known health state of instance.
-        
+
         Args:
             instance_id: Instance ID to query
-            
+
         Returns:
             Health state dict or None if not found
         """
@@ -289,12 +293,12 @@ class RedisClient:
         self, instance_id: str, health: Dict[str, Any], ttl: int = 60
     ) -> bool:
         """Publish instance health state to cluster.
-        
+
         Args:
             instance_id: Instance ID publishing health
             health: Health state dictionary
             ttl: Health data TTL (seconds)
-            
+
         Returns:
             True if published, False otherwise
         """
@@ -315,7 +319,7 @@ class RedisClient:
 
     async def get_all_instance_health(self) -> Dict[str, Dict]:
         """Get health states of all instances using non-blocking SCAN.
-        
+
         Returns:
             Dict mapping instance_id to health state
         """
@@ -327,7 +331,7 @@ class RedisClient:
             pattern = "astra:health:*"
             cursor = 0
             keys = []
-            
+
             # SCAN loop accumulates keys until cursor returns to 0
             while True:
                 cursor, batch_keys = await self.redis.scan(
@@ -338,7 +342,7 @@ class RedisClient:
                 keys.extend(batch_keys)
                 if cursor == 0:
                     break  # Iteration complete
-            
+
             if not keys:
                 return {}
 
@@ -364,10 +368,10 @@ class RedisClient:
 
     async def clear_stale_votes(self, prefix: str = "astra:resilience:vote") -> int:
         """Remove expired/stale votes (cleanup) using non-blocking SCAN.
-        
+
         Args:
             prefix: Key prefix for votes
-            
+
         Returns:
             Number of votes cleared
         """
@@ -379,7 +383,7 @@ class RedisClient:
             pattern = f"{prefix}:*"
             cursor = 0
             keys = []
-            
+
             # SCAN loop accumulates keys until cursor returns to 0
             while True:
                 cursor, batch_keys = await self.redis.scan(
@@ -390,7 +394,7 @@ class RedisClient:
                 keys.extend(batch_keys)
                 if cursor == 0:
                     break  # Iteration complete
-            
+
             if not keys:
                 return 0
 
@@ -409,10 +413,10 @@ class RedisClient:
 
     async def subscribe_to_channel(self, channel: str):
         """Subscribe to pub/sub channel (returns pubsub object).
-        
+
         Args:
             channel: Channel name to subscribe to
-            
+
         Returns:
             Subscription object for listening to messages
         """
@@ -430,7 +434,7 @@ class RedisClient:
 
     async def health_check(self) -> bool:
         """Perform health check on Redis connection.
-        
+
         Returns:
             True if healthy, False otherwise
         """

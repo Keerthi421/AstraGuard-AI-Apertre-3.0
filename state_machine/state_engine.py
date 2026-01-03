@@ -9,18 +9,21 @@ from core.component_health import get_health_monitor
 
 logger = logging.getLogger(__name__)
 
+
 class SystemState(Enum):
     """Represents the operational state of the CubeSat system."""
+
     NORMAL = "NORMAL"
     ANOMALY_DETECTED = "ANOMALY_DETECTED"
     FAULT_DETECTED = "FAULT_DETECTED"
     RECOVERY_IN_PROGRESS = "RECOVERY_IN_PROGRESS"
     SAFE_MODE = "SAFE_MODE"
 
+
 class MissionPhase(Enum):
     """
     Mission phases for CubeSat operations.
-    
+
     Each phase has specific operational constraints and fault response policies:
     - LAUNCH: Rocket ascent and orbital insertion. Highly constrained.
     - DEPLOYMENT: Initial system startup and stabilization. Limited actions.
@@ -28,32 +31,38 @@ class MissionPhase(Enum):
     - PAYLOAD_OPS: Specialized payload mission operations. Custom constraints.
     - SAFE_MODE: Minimal power state for survival. Minimal automated actions.
     """
+
     LAUNCH = "LAUNCH"
     DEPLOYMENT = "DEPLOYMENT"
     NOMINAL_OPS = "NOMINAL_OPS"
     PAYLOAD_OPS = "PAYLOAD_OPS"
     SAFE_MODE = "SAFE_MODE"
 
+
 class StateMachine:
     """
     Manages system state and mission phase transitions.
-    
+
     Responsibilities:
     - Track current system state (NORMAL, ANOMALY_DETECTED, FAULT_DETECTED, etc.)
     - Track mission phase (LAUNCH, DEPLOYMENT, NOMINAL_OPS, PAYLOAD_OPS, SAFE_MODE)
     - Provide APIs for querying and updating both state and phase
     - Manage phase transitions based on mission events
     """
-    
+
     # Valid phase transitions
     PHASE_TRANSITIONS = {
         MissionPhase.LAUNCH: [MissionPhase.DEPLOYMENT, MissionPhase.SAFE_MODE],
         MissionPhase.DEPLOYMENT: [MissionPhase.NOMINAL_OPS, MissionPhase.SAFE_MODE],
         MissionPhase.NOMINAL_OPS: [MissionPhase.PAYLOAD_OPS, MissionPhase.SAFE_MODE],
         MissionPhase.PAYLOAD_OPS: [MissionPhase.NOMINAL_OPS, MissionPhase.SAFE_MODE],
-        MissionPhase.SAFE_MODE: [MissionPhase.NOMINAL_OPS, MissionPhase.DEPLOYMENT, MissionPhase.LAUNCH],
+        MissionPhase.SAFE_MODE: [
+            MissionPhase.NOMINAL_OPS,
+            MissionPhase.DEPLOYMENT,
+            MissionPhase.LAUNCH,
+        ],
     }
-    
+
     def __init__(self):
         self.current_state = SystemState.NORMAL
         self.current_phase = MissionPhase.NOMINAL_OPS
@@ -62,59 +71,62 @@ class StateMachine:
         self.recovery_start_time = None
         self.recovery_duration = 5  # seconds (simulated)
         self.recovery_steps = 0
-        
+
         # Register with health monitor (guarantee HEALTHY status)
         try:
             health_monitor = get_health_monitor()
-            health_monitor.register_component("state_machine", {
-                "initial_state": self.current_state.value,
-                "initial_phase": self.current_phase.value,
-            })
+            health_monitor.register_component(
+                "state_machine",
+                {
+                    "initial_state": self.current_state.value,
+                    "initial_phase": self.current_phase.value,
+                },
+            )
             # Ensure it's marked as HEALTHY (idempotent)
             health_monitor.mark_healthy("state_machine")
         except Exception as e:
             logger.warning(f"Failed to register state_machine with health monitor: {e}")
-    
+
     def get_current_phase(self) -> MissionPhase:
         """Get the current mission phase."""
         return self.current_phase
-    
+
     def get_current_state(self) -> SystemState:
         """Get the current system state."""
         return self.current_state
-    
+
     def set_phase(self, phase: MissionPhase) -> Dict[str, Any]:
         """
         Update the mission phase with validation and error handling.
-        
+
         Args:
             phase: Target MissionPhase
-            
+
         Returns:
             Dict with previous_phase, new_phase, success, and message
-            
+
         Raises:
             StateTransitionError: If phase transition fails after retry
         """
         health_monitor = get_health_monitor()
-        
+
         try:
             if not isinstance(phase, MissionPhase):
                 raise StateTransitionError(
                     f"Invalid phase type: {type(phase)}",
                     component="state_machine",
-                    context={"phase_type": str(type(phase))}
+                    context={"phase_type": str(type(phase))},
                 )
-            
+
             if self.current_phase == phase:
                 health_monitor.mark_healthy("state_machine")
                 return {
                     "success": True,
                     "previous_phase": self.current_phase.value,
                     "new_phase": phase.value,
-                    "message": "Already in target phase"
+                    "message": "Already in target phase",
                 }
-            
+
             # Check if transition is valid
             if phase not in self.PHASE_TRANSITIONS.get(self.current_phase, []):
                 raise StateTransitionError(
@@ -123,51 +135,62 @@ class StateMachine:
                     context={
                         "current_phase": self.current_phase.value,
                         "target_phase": phase.value,
-                        "valid_transitions": [p.value for p in self.PHASE_TRANSITIONS.get(self.current_phase, [])]
-                    }
+                        "valid_transitions": [
+                            p.value
+                            for p in self.PHASE_TRANSITIONS.get(self.current_phase, [])
+                        ],
+                    },
                 )
-            
+
             previous_phase = self.current_phase
             self.current_phase = phase
             self.phase_start_time = datetime.now()
             self.phase_history.append((phase, datetime.now()))
-            
-            logger.info(f"Mission phase transitioned: {previous_phase.value} → {phase.value}")
-            health_monitor.mark_healthy("state_machine", {
-                "current_phase": phase.value,
-                "previous_phase": previous_phase.value,
-            })
-            
+
+            logger.info(
+                f"Mission phase transitioned: {previous_phase.value} → {phase.value}"
+            )
+            health_monitor.mark_healthy(
+                "state_machine",
+                {
+                    "current_phase": phase.value,
+                    "previous_phase": previous_phase.value,
+                },
+            )
+
             return {
                 "success": True,
                 "previous_phase": previous_phase.value,
                 "new_phase": phase.value,
-                "message": f"Transitioned from {previous_phase.value} to {phase.value}"
+                "message": f"Transitioned from {previous_phase.value} to {phase.value}",
             }
         except StateTransitionError as e:
             logger.error(f"State transition error: {e.message}")
             health_monitor.mark_degraded(
                 "state_machine",
                 error_msg=e.message,
-                metadata={"error_type": "transition_invalid"}
+                metadata={"error_type": "transition_invalid"},
             )
             raise
         except Exception as e:
             logger.error(f"Unexpected error in set_phase: {e}")
             health_monitor.mark_degraded(
-                "state_machine",
-                error_msg=str(e),
-                metadata={"error_type": "unexpected"}
+                "state_machine", error_msg=str(e), metadata={"error_type": "unexpected"}
             )
             raise
 
-    def process_fault(self, fault_type: str, telemetry: Dict[str, Any]) -> Dict[str, str]:
+    def process_fault(
+        self, fault_type: str, telemetry: Dict[str, Any]
+    ) -> Dict[str, str]:
         """Process a detected fault and transition state."""
         previous_state = self.current_state.value
-        
+
         if fault_type == "normal":
             # If we were in anomaly/fault state but now normal, we might recover
-            if self.current_state in [SystemState.ANOMALY_DETECTED, SystemState.FAULT_DETECTED]:
+            if self.current_state in [
+                SystemState.ANOMALY_DETECTED,
+                SystemState.FAULT_DETECTED,
+            ]:
                 # Auto-recover if transient
                 self.current_state = SystemState.NORMAL
         else:
@@ -179,11 +202,11 @@ class StateMachine:
             elif self.current_state == SystemState.FAULT_DETECTED:
                 self.current_state = SystemState.RECOVERY_IN_PROGRESS
                 self.recovery_steps = 0
-                
+
         return {
             "previous_state": previous_state,
             "new_state": self.current_state.value,
-            "action": "transition"
+            "action": "transition",
         }
 
     def check_recovery_complete(self) -> bool:
@@ -201,12 +224,13 @@ class StateMachine:
         return {
             "previous_state": previous_state,
             "new_state": self.current_state.value,
-            "action": "resume"
-        }    
+            "action": "resume",
+        }
+
     def get_phase_history(self) -> list:
         """Get the history of mission phase transitions."""
         return [(phase.value, timestamp) for phase, timestamp in self.phase_history]
-    
+
     def force_safe_mode(self) -> Dict[str, Any]:
         """
         Forcibly transition to SAFE_MODE (emergency procedure).
@@ -216,32 +240,32 @@ class StateMachine:
         self.current_phase = MissionPhase.SAFE_MODE
         self.phase_start_time = datetime.now()
         self.phase_history.append((MissionPhase.SAFE_MODE, datetime.now()))
-        
+
         logger.warning(f"Forced transition to SAFE_MODE from {previous_phase.value}")
-        
+
         return {
             "success": True,
             "previous_phase": previous_phase.value,
             "new_phase": MissionPhase.SAFE_MODE.value,
             "message": "Emergency transition to SAFE_MODE executed",
-            "forced": True
+            "forced": True,
         }
-    
+
     def get_phase_description(self, phase: Optional[MissionPhase] = None) -> str:
         """Get human-readable description of a mission phase."""
         if phase is None:
             phase = self.current_phase
-        
+
         descriptions = {
             MissionPhase.LAUNCH: "Rocket ascent and orbital insertion. Highly constrained, minimal automated actions.",
             MissionPhase.DEPLOYMENT: "Initial system startup and stabilization. Limited automated responses.",
             MissionPhase.NOMINAL_OPS: "Standard mission operations. Full automated response capabilities.",
             MissionPhase.PAYLOAD_OPS: "Specialized payload mission operations. Balanced constraints.",
-            MissionPhase.SAFE_MODE: "Minimal power state for survival. Minimal automated actions."
+            MissionPhase.SAFE_MODE: "Minimal power state for survival. Minimal automated actions.",
         }
-        
+
         return descriptions.get(phase, "Unknown phase")
-    
+
     def is_phase_transition_valid(self, target_phase: MissionPhase) -> bool:
         """Check if a phase transition is valid without performing it."""
         return target_phase in self.PHASE_TRANSITIONS.get(self.current_phase, [])

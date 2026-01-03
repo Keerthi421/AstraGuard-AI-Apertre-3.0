@@ -26,56 +26,56 @@ except ImportError:
     class Counter:
         def __init__(self, *args, **kwargs):
             self.labels = lambda **kw: self
+
         def inc(self, amount=1):
             pass
-    
+
     class Histogram:
         def __init__(self, *args, **kwargs):
             self.labels = lambda **kw: self
+
         def observe(self, value):
             pass
-    
+
     class Gauge:
         def __init__(self, *args, **kwargs):
             self.labels = lambda **kw: self
+
         def set(self, value):
             pass
+
 
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
 CHAOS_INJECTIONS = Counter(
-    'astra_chaos_injections_total',
-    'Total chaos experiments injected',
-    ['fault_type']
+    "astra_chaos_injections_total", "Total chaos experiments injected", ["fault_type"]
 )
 CHAOS_RECOVERY_TIME = Histogram(
-    'astra_chaos_recovery_seconds',
-    'Time to recover from chaos injection',
-    ['fault_type']
+    "astra_chaos_recovery_seconds",
+    "Time to recover from chaos injection",
+    ["fault_type"],
 )
 CHAOS_ACTIVE = Gauge(
-    'astra_chaos_active',
-    'Currently active chaos injection',
-    ['fault_type']
+    "astra_chaos_active", "Currently active chaos injection", ["fault_type"]
 )
 
 
 class ChaosEngine:
     """Automated failure injection and resilience validation.
-    
+
     Provides controlled fault injection for testing:
     - Circuit breaker state transitions
     - Retry logic self-healing
     - Recovery orchestrator actions
     - Distributed consensus failover
-    
+
     Measures recovery time and validates resilience under failure.
     """
 
     def __init__(self, base_url: str = "http://localhost:8000"):
         """Initialize Chaos Engine.
-        
+
         Args:
             base_url: Base URL of AstraGuard service under test
         """
@@ -95,11 +95,11 @@ class ChaosEngine:
 
     async def inject_faults(self, fault_type: str, duration_seconds: int = 30) -> bool:
         """Inject controlled faults into system.
-        
+
         Args:
             fault_type: Type of fault ("model_loader", "network_latency", "redis_failure")
             duration_seconds: How long fault persists
-            
+
         Returns:
             True if injection succeeded
         """
@@ -123,10 +123,10 @@ class ChaosEngine:
 
     async def _inject_model_loader_failure(self, duration_seconds: int) -> bool:
         """Simulate model loading failure.
-        
+
         Args:
             duration_seconds: Duration of failure
-            
+
         Returns:
             True if recovered within timeout
         """
@@ -137,18 +137,28 @@ class ChaosEngine:
         # Simulate failure by checking health until recovery
         while time.time() - start_time < recovery_timeout:
             try:
-                async with self.session.get(f"{self.base_url}/health/state", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with self.session.get(
+                    f"{self.base_url}/health/state",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
                     if resp.status == 200:
                         state = await resp.json()
                         # Check if system indicates recovery
-                        if state.get("system", {}).get("status") in ["HEALTHY", "DEGRADED"]:
+                        if state.get("system", {}).get("status") in [
+                            "HEALTHY",
+                            "DEGRADED",
+                        ]:
                             recovery_time = time.time() - start_time
-                            CHAOS_RECOVERY_TIME.labels(fault_type="model_loader").observe(recovery_time)
-                            logger.info(f"Model loader recovered in {recovery_time:.2f}s")
+                            CHAOS_RECOVERY_TIME.labels(
+                                fault_type="model_loader"
+                            ).observe(recovery_time)
+                            logger.info(
+                                f"Model loader recovered in {recovery_time:.2f}s"
+                            )
                             return True
             except Exception as e:
                 logger.debug(f"Health check failed: {e}")
-            
+
             await asyncio.sleep(1)
 
         logger.warning(f"Model loader did not recover within {recovery_timeout}s")
@@ -156,10 +166,10 @@ class ChaosEngine:
 
     async def _inject_network_latency(self, duration_seconds: int) -> bool:
         """Simulate network latency using tc (traffic control).
-        
+
         Args:
             duration_seconds: Duration of latency injection
-            
+
         Returns:
             True if latency was applied
         """
@@ -167,16 +177,18 @@ class ChaosEngine:
         # In real deployment, would use: docker exec to add tc qdisc
         # For testing, simulate with delayed responses
         start_time = time.time()
-        
+
         # Monitor latency through metrics
         while time.time() - start_time < duration_seconds:
             try:
-                async with self.session.get(f"{self.base_url}/metrics", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with self.session.get(
+                    f"{self.base_url}/metrics", timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
                     if resp.status == 200:
                         pass  # Latency measured by Prometheus
             except Exception as e:
                 logger.debug(f"Metrics check failed: {e}")
-            
+
             await asyncio.sleep(2)
 
         logger.info("Network latency injection complete")
@@ -184,10 +196,10 @@ class ChaosEngine:
 
     async def _inject_redis_failure(self, duration_seconds: int) -> bool:
         """Simulate Redis service failure.
-        
+
         Args:
             duration_seconds: Duration of failure
-            
+
         Returns:
             True if system handled failure gracefully
         """
@@ -198,7 +210,10 @@ class ChaosEngine:
         degradation_detected = False
         while time.time() - start_time < duration_seconds:
             try:
-                async with self.session.get(f"{self.base_url}/health/state", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with self.session.get(
+                    f"{self.base_url}/health/state",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
                     if resp.status == 200:
                         state = await resp.json()
                         # Should degrade gracefully, not fail
@@ -209,15 +224,17 @@ class ChaosEngine:
 
             await asyncio.sleep(1)
 
-        logger.info(f"Redis failure injection complete (degradation detected: {degradation_detected})")
+        logger.info(
+            f"Redis failure injection complete (degradation detected: {degradation_detected})"
+        )
         return degradation_detected or True  # Graceful degradation or fallback
 
     async def test_circuit_breaker(self) -> bool:
         """Test circuit breaker resilience.
-        
+
         Injects model loader failures and verifies circuit breaker transitions:
         CLOSED → OPEN → HALF_OPEN → CLOSED
-        
+
         Returns:
             True if circuit breaker behaved correctly
         """
@@ -225,7 +242,7 @@ class ChaosEngine:
         try:
             # Inject model loader failure
             result = await self.inject_faults("model_loader", duration_seconds=30)
-            
+
             # Verify circuit breaker recovered
             await asyncio.sleep(2)
             async with self.session.get(f"{self.base_url}/health/state") as resp:
@@ -234,7 +251,7 @@ class ChaosEngine:
                     cb_state = state.get("circuit_breaker", {}).get("state", "UNKNOWN")
                     logger.info(f"Circuit breaker state after test: {cb_state}")
                     return cb_state in ["CLOSED", "HALF_OPEN"]
-            
+
             return result
         except Exception as e:
             logger.error(f"Circuit breaker test failed: {e}")
@@ -242,16 +259,16 @@ class ChaosEngine:
 
     async def test_retry_logic(self) -> bool:
         """Test retry logic self-healing.
-        
+
         Injects network latency and verifies retry mechanisms activate.
-        
+
         Returns:
             True if retries handled transient failures
         """
         logger.info("Starting retry logic chaos test")
         try:
             result = await self.inject_faults("network_latency", duration_seconds=20)
-            
+
             # Check retry metrics
             await asyncio.sleep(2)
             async with self.session.get(f"{self.base_url}/health/state") as resp:
@@ -261,7 +278,7 @@ class ChaosEngine:
                     logger.info(f"Retry state after test: {retry_state}")
                     # Should be STABLE or ELEVATED, not CRITICAL
                     return retry_state in ["STABLE", "ELEVATED"]
-            
+
             return result
         except Exception as e:
             logger.error(f"Retry logic test failed: {e}")
@@ -269,9 +286,9 @@ class ChaosEngine:
 
     async def test_recovery_orchestrator(self) -> bool:
         """Test recovery orchestrator automatic actions.
-        
+
         Injects failures and verifies recovery actions are triggered.
-        
+
         Returns:
             True if recovery actions were executed
         """
@@ -279,7 +296,7 @@ class ChaosEngine:
         try:
             # Inject Redis failure to trigger recovery actions
             result = await self.inject_faults("redis_failure", duration_seconds=15)
-            
+
             # Check recovery action history
             await asyncio.sleep(2)
             async with self.session.get(f"{self.base_url}/recovery/metrics") as resp:
@@ -288,7 +305,7 @@ class ChaosEngine:
                     action_count = metrics.get("action_count", 0)
                     logger.info(f"Recovery actions executed: {action_count}")
                     return action_count > 0
-            
+
             return result
         except Exception as e:
             logger.error(f"Recovery orchestrator test failed: {e}")
@@ -296,10 +313,10 @@ class ChaosEngine:
 
     async def test_cluster_consensus(self) -> bool:
         """Test distributed consensus under failure.
-        
+
         Verifies cluster election and consensus mechanisms work correctly
         when instances fail or become unavailable.
-        
+
         Returns:
             True if consensus mechanisms maintained
         """
@@ -314,7 +331,7 @@ class ChaosEngine:
 
             # Simulate leader failure by checking consensus under stress
             result = await self.inject_faults("network_latency", duration_seconds=20)
-            
+
             # Verify new consensus still valid
             await asyncio.sleep(3)
             async with self.session.get(f"{self.base_url}/cluster/consensus") as resp:
@@ -323,7 +340,7 @@ class ChaosEngine:
                     is_valid = consensus.get("quorum_met", False)
                     logger.info(f"Consensus valid after chaos: {is_valid}")
                     return is_valid
-            
+
             return result
         except Exception as e:
             logger.error(f"Cluster consensus test failed: {e}")
@@ -331,13 +348,13 @@ class ChaosEngine:
 
     async def run_full_suite(self) -> Dict[str, bool]:
         """Run complete chaos test matrix.
-        
+
         Tests all resilience features (#14-18):
         - Circuit Breaker (#14)
         - Retry Logic (#15)
         - Recovery Orchestrator (#17)
         - Distributed Consensus (#18)
-        
+
         Returns:
             Dict mapping test name to pass/fail status
         """
@@ -365,61 +382,62 @@ class ChaosEngine:
 
 async def main():
     """Standalone chaos test runner.
-    
+
     Requires AstraGuard services running at localhost:8000:
     - Dashboard API server
     - Redis service (for distributed consensus)
     - Health monitoring endpoints
-    
+
     To run this chaos test suite:
     1. Start the dashboard: python -m dashboard.app
     2. Ensure Redis is running: redis-cli ping
     3. Run this script: python -m backend.chaos_engine
-    
+
     Or run in dry-run mode: python -m backend.chaos_engine --dry-run
     """
     import sys
-    
+
     # Configure logging for standalone execution
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(message)s'
-    )
-    
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     dry_run = "--dry-run" in sys.argv
     force_live = "--live" in sys.argv
     engine = ChaosEngine()
-    
+
     # If services not available and not forced to live, auto-fallback to dry-run
     if not force_live:
         try:
             await engine.startup()
-            
+
             # Quick connectivity check
             async with engine.session.get(
-                f"{engine.base_url}/health/state", 
-                timeout=aiohttp.ClientTimeout(total=2)
+                f"{engine.base_url}/health/state",
+                timeout=aiohttp.ClientTimeout(total=2),
             ) as resp:
                 if resp.status != 200:
                     raise ConnectionError(f"Health endpoint returned {resp.status}")
         except Exception as conn_err:
             # Services not available - auto-fallback to dry-run
             if not dry_run:
-                logger.info(f"\n⚠️  AstraGuard services not available at {engine.base_url}")
-                logger.info(f"   Automatically running in dry-run mode (simulated tests)\n")
+                logger.info(
+                    f"\n⚠️  AstraGuard services not available at {engine.base_url}"
+                )
+                logger.info(
+                    f"   Automatically running in dry-run mode (simulated tests)\n"
+                )
                 dry_run = True
-            
+
             if engine.session:
                 await engine.shutdown()
     else:
         # Force live mode - require services
         try:
             await engine.startup()
-            
+
             # Quick connectivity check
             async with engine.session.get(
-                f"{engine.base_url}/health/state", 
-                timeout=aiohttp.ClientTimeout(total=2)
+                f"{engine.base_url}/health/state",
+                timeout=aiohttp.ClientTimeout(total=2),
             ) as resp:
                 if resp.status != 200:
                     raise ConnectionError(f"Health endpoint returned {resp.status}")
@@ -434,7 +452,7 @@ async def main():
             logger.error("  - python -m backend.chaos_engine\n")
             await engine.shutdown()
             return 1
-    
+
     if dry_run:
         logger.info("\n" + "=" * 60)
         logger.info("CHAOS TEST SUITE: DRY-RUN MODE (Simulated Tests)")
@@ -450,18 +468,22 @@ async def main():
         logger.info("\nFor live integration testing:")
         logger.info("  1. Start the dashboard: python -m dashboard.app")
         logger.info("  2. Ensure Redis is running: redis-cli ping")
-        logger.info("  3. Run with --live flag: python -m backend.chaos_engine --live\n")
+        logger.info(
+            "  3. Run with --live flag: python -m backend.chaos_engine --live\n"
+        )
         return 0
-    
+
     try:
         results = await engine.run_full_suite()
         all_passed = all(results.values())
-        
+
         if all_passed:
             logger.info("\n✅ ALL CHAOS TESTS PASSED - SYSTEM READY FOR PRODUCTION\n")
             return 0
         else:
-            logger.error("\n❌ SOME CHAOS TESTS FAILED - REVIEW RESILIENCE IMPLEMENTATION\n")
+            logger.error(
+                "\n❌ SOME CHAOS TESTS FAILED - REVIEW RESILIENCE IMPLEMENTATION\n"
+            )
             return 1
     except Exception as e:
         logger.error(f"\n❌ CHAOS TEST SUITE FAILED WITH ERROR\n")
@@ -473,5 +495,6 @@ async def main():
 
 if __name__ == "__main__":
     import sys
+
     exit_code = asyncio.run(main())
     sys.exit(exit_code)

@@ -11,9 +11,4 @@ from .recurrence_scorer import RecurrenceScorer
 from .decay_policy import DecayPolicy
 from .replay_engine import ReplayEngine
 
-__all__ = [
-    "AdaptiveMemoryStore",
-    "RecurrenceScorer", 
-    "DecayPolicy",
-    "ReplayEngine"
-]
+__all__ = ["AdaptiveMemoryStore", "RecurrenceScorer", "DecayPolicy", "ReplayEngine"]

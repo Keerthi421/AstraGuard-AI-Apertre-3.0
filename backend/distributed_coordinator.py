@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ConsensusDecision:
     """Consensus decision from cluster quorum."""
-    
+
     circuit_state: str  # e.g., "CLOSED", "OPEN", "HALF_OPEN"
     fallback_mode: str  # e.g., "PRIMARY", "HEURISTIC", "SAFE"
     leader_instance: str  # Instance ID of current leader
@@ -41,7 +41,7 @@ class ConsensusDecision:
 
 class DistributedResilienceCoordinator:
     """Cluster-wide resilience state coordination via Redis.
-    
+
     Responsibilities:
     - Lead cluster-wide state synchronization
     - Coordinate leader election
@@ -60,7 +60,7 @@ class DistributedResilienceCoordinator:
         quorum_threshold: float = 0.5,  # >50% for consensus
     ):
         """Initialize distributed coordinator.
-        
+
         Args:
             redis_client: RedisClient instance for communication
             health_monitor: HealthMonitor for local state
@@ -93,7 +93,7 @@ class DistributedResilienceCoordinator:
 
     async def startup(self):
         """Initialize distributed coordination.
-        
+
         Attempts leader election and starts background tasks.
         """
         if not self.redis.connected:
@@ -149,7 +149,7 @@ class DistributedResilienceCoordinator:
 
     async def _state_publisher(self, interval: int = 5):
         """Continuously publish local state to cluster.
-        
+
         Args:
             interval: Publication interval in seconds
         """
@@ -167,9 +167,7 @@ class DistributedResilienceCoordinator:
                 }
 
                 # Publish to cluster
-                await self.redis.publish_state(
-                    "astra:resilience:state", state_payload
-                )
+                await self.redis.publish_state("astra:resilience:state", state_payload)
 
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:
@@ -180,7 +178,7 @@ class DistributedResilienceCoordinator:
 
     async def _leader_renewal(self, interval: int = 15):
         """Renew leadership TTL if leader.
-        
+
         Args:
             interval: Renewal interval in seconds
         """
@@ -213,15 +211,15 @@ class DistributedResilienceCoordinator:
 
     def _compute_health_score(self, local_state: Dict[str, Any]) -> float:
         """Compute normalized health score (0.0-1.0) from component states.
-        
+
         Combines weights from:
         - System health status (40% weight)
         - Circuit breaker state (35% weight)
         - Retry metrics state (25% weight)
-        
+
         Args:
             local_state: Comprehensive state dict from get_comprehensive_state()
-            
+
         Returns:
             Normalized health score between 0.0 (failed) and 1.0 (healthy)
         """
@@ -257,17 +255,17 @@ class DistributedResilienceCoordinator:
 
         # Normalized health score
         health_score = system_score + cb_score + retry_score
-        
+
         logger.debug(
             f"Computed health_score={health_score:.2f} "
             f"(system={system_score:.2f}, cb={cb_score:.2f}, retry={retry_score:.2f})"
         )
-        
+
         return health_score
 
     async def _vote_collector(self, interval: int = 5):
         """Collect and register cluster votes.
-        
+
         Args:
             interval: Collection interval in seconds
         """
@@ -277,9 +275,11 @@ class DistributedResilienceCoordinator:
                 local_state = await self.health.get_comprehensive_state()
 
                 # Extract values from nested structure
-                circuit_state = local_state.get("circuit_breaker", {}).get("state", "UNKNOWN")
+                circuit_state = local_state.get("circuit_breaker", {}).get(
+                    "state", "UNKNOWN"
+                )
                 fallback_mode = local_state.get("fallback", {}).get("mode", "PRIMARY")
-                
+
                 # Compute health_score from available component states
                 health_score = self._compute_health_score(local_state)
 
@@ -303,10 +303,10 @@ class DistributedResilienceCoordinator:
 
     async def get_cluster_consensus(self) -> ConsensusDecision:
         """Get quorum-based consensus decision from cluster.
-        
+
         Collects votes from all instances and applies majority voting.
         Requires >50% quorum for valid consensus.
-        
+
         Returns:
             ConsensusDecision with cluster consensus
         """
@@ -341,7 +341,7 @@ class DistributedResilienceCoordinator:
             # Calculate quorum using configured threshold
             num_votes = len(votes)
             total_nodes = num_votes  # Use voting instances as cluster size
-            
+
             # Validate quorum threshold is in valid range (0, 1]
             if not (0 < self.quorum_threshold <= 1):
                 logger.warning(
@@ -351,7 +351,7 @@ class DistributedResilienceCoordinator:
                 effective_threshold = 0.5
             else:
                 effective_threshold = self.quorum_threshold
-            
+
             # Calculate required votes for quorum
             required_votes = math.ceil(effective_threshold * total_nodes)
             quorum_met = num_votes >= required_votes
@@ -396,13 +396,13 @@ class DistributedResilienceCoordinator:
 
     def _majority_vote(self, votes: List[str]) -> str:
         """Apply majority voting to list of votes.
-        
+
         Returns most common vote if it has >50% agreement.
         Otherwise returns "SPLIT_BRAIN" to indicate conflict.
-        
+
         Args:
             votes: List of vote values
-            
+
         Returns:
             Most common vote or "SPLIT_BRAIN"
         """
@@ -424,7 +424,7 @@ class DistributedResilienceCoordinator:
 
     async def get_cluster_health(self) -> Dict[str, Any]:
         """Get aggregated health status of entire cluster.
-        
+
         Returns:
             Dict with cluster health metrics
         """
@@ -435,14 +435,10 @@ class DistributedResilienceCoordinator:
 
             # Categorize health
             healthy = sum(
-                1
-                for h in all_health.values()
-                if h.get("health_score", 0) >= 0.8
+                1 for h in all_health.values() if h.get("health_score", 0) >= 0.8
             )
             degraded = sum(
-                1
-                for h in all_health.values()
-                if 0.5 <= h.get("health_score", 0) < 0.8
+                1 for h in all_health.values() if 0.5 <= h.get("health_score", 0) < 0.8
             )
             failed = sum(
                 1 for h in all_health.values() if h.get("health_score", 0) < 0.5
@@ -461,7 +457,7 @@ class DistributedResilienceCoordinator:
 
     async def get_metrics(self) -> Dict[str, Any]:
         """Get coordinator metrics.
-        
+
         Returns:
             Dict with coordination metrics
         """
@@ -480,12 +476,12 @@ class DistributedResilienceCoordinator:
 
     async def apply_consensus_decision(self, decision: ConsensusDecision) -> bool:
         """Apply consensus decision to local instance.
-        
+
         Updates fallback mode based on consensus if quorum met.
-        
+
         Args:
             decision: ConsensusDecision to apply
-            
+
         Returns:
             True if applied, False otherwise
         """
@@ -496,7 +492,9 @@ class DistributedResilienceCoordinator:
         try:
             # Apply fallback mode change if different
             if self.fallback and decision.fallback_mode != "PRIMARY":
-                logger.info(f"Applying consensus fallback mode: {decision.fallback_mode}")
+                logger.info(
+                    f"Applying consensus fallback mode: {decision.fallback_mode}"
+                )
                 result = await self.fallback.set_mode(decision.fallback_mode)
                 return result
 

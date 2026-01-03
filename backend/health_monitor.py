@@ -25,6 +25,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Gauge, Count
 # Import from core modules
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core.component_health import SystemHealthMonitor, HealthStatus
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 class FallbackMode(str, Enum):
     """Fallback cascade modes"""
+
     PRIMARY = "primary"
     HEURISTIC = "heuristic"
     SAFE = "safe"
@@ -45,15 +47,15 @@ class FallbackMode(str, Enum):
 # ============================================================================
 
 FALLBACK_MODE_GAUGE = Gauge(
-    'astraguard_fallback_mode',
-    'Current fallback mode (0=primary, 1=heuristic, 2=safe)',
-    registry=REGISTRY
+    "astraguard_fallback_mode",
+    "Current fallback mode (0=primary, 1=heuristic, 2=safe)",
+    registry=REGISTRY,
 )
 
 HEALTH_CHECK_DURATION = Gauge(
-    'astraguard_health_check_duration_seconds',
-    'Time to complete health check',
-    registry=REGISTRY
+    "astraguard_health_check_duration_seconds",
+    "Time to complete health check",
+    registry=REGISTRY,
 )
 
 # ============================================================================
@@ -64,17 +66,17 @@ HEALTH_CHECK_DURATION = Gauge(
 class HealthMonitor:
     """
     Centralized health monitoring and observability engine.
-    
+
     Tracks:
     - Circuit breaker state and open duration
     - Retry failures over time window
     - Fallback mode cascade status
     - Component health aggregation
     - System uptime
-    
+
     Thread-safe with background health polling.
     """
-    
+
     def __init__(
         self,
         circuit_breaker=None,
@@ -83,7 +85,7 @@ class HealthMonitor:
     ):
         """
         Initialize health monitor.
-        
+
         Args:
             circuit_breaker: Optional CircuitBreaker instance from issue #14
             retry_tracker: Optional retry failure tracker from issue #15
@@ -92,26 +94,26 @@ class HealthMonitor:
         self.cb = circuit_breaker
         self.retry_tracker = retry_tracker
         self.failure_window_seconds = failure_window_seconds
-        
+
         self.fallback_mode = FallbackMode.PRIMARY
         self.component_health = SystemHealthMonitor()
         self.start_time = datetime.utcnow()
-        
+
         self._lock = Lock()
         self._retry_failures: List[datetime] = []
         self._fallback_cascade_log: List[Dict[str, Any]] = []
-        
+
         logger.info("HealthMonitor initialized")
-    
+
     async def get_comprehensive_state(self) -> Dict[str, Any]:
         """
         Get comprehensive health snapshot for dashboard.
-        
+
         Returns:
             Dict with system state, metrics, and component health
         """
         start = time.time()
-        
+
         try:
             state = {
                 "timestamp": datetime.utcnow().isoformat(),
@@ -125,19 +127,19 @@ class HealthMonitor:
                 "components": self._get_components_health(),
                 "uptime_seconds": self._get_uptime_seconds(),
             }
-            
+
             duration = time.time() - start
             HEALTH_CHECK_DURATION.set(duration)
-            
+
             return state
         except Exception as e:
             logger.error(f"Error in get_comprehensive_state: {e}", exc_info=True)
             raise
-    
+
     def _get_system_health(self) -> Dict[str, Any]:
         """Get overall system health status."""
         statuses = [c.status for c in self.component_health._components.values()]
-        
+
         if not statuses:
             overall = HealthStatus.UNKNOWN.value
         elif HealthStatus.FAILED in statuses:
@@ -146,15 +148,17 @@ class HealthMonitor:
             overall = HealthStatus.DEGRADED.value
         else:
             overall = HealthStatus.HEALTHY.value
-        
+
         return {
             "status": overall,
             "healthy_components": sum(1 for s in statuses if s == HealthStatus.HEALTHY),
-            "degraded_components": sum(1 for s in statuses if s == HealthStatus.DEGRADED),
+            "degraded_components": sum(
+                1 for s in statuses if s == HealthStatus.DEGRADED
+            ),
             "failed_components": sum(1 for s in statuses if s == HealthStatus.FAILED),
             "total_components": len(statuses),
         }
-    
+
     def _get_circuit_breaker_state(self) -> Dict[str, Any]:
         """Get circuit breaker state and metrics."""
         if not self.cb:
@@ -166,14 +170,14 @@ class HealthMonitor:
                 "successes_total": 0,
                 "trips_total": 0,
             }
-        
-        cb_state = getattr(self.cb, 'state', 'UNKNOWN')
-        metrics = getattr(self.cb, 'metrics', None)
-        
+
+        cb_state = getattr(self.cb, "state", "UNKNOWN")
+        metrics = getattr(self.cb, "metrics", None)
+
         open_duration = 0
         if cb_state == "OPEN" and metrics and metrics.state_change_time:
             open_duration = (datetime.now() - metrics.state_change_time).total_seconds()
-        
+
         return {
             "available": True,
             "state": str(cb_state),
@@ -183,60 +187,66 @@ class HealthMonitor:
             "trips_total": metrics.trips_total if metrics else 0,
             "consecutive_failures": metrics.consecutive_failures if metrics else 0,
         }
-    
+
     def _get_retry_metrics(self) -> Dict[str, Any]:
         """Get retry failure metrics within time window."""
         with self._lock:
             # Clean old entries outside time window
-            cutoff_time = datetime.utcnow() - timedelta(seconds=self.failure_window_seconds)
+            cutoff_time = datetime.utcnow() - timedelta(
+                seconds=self.failure_window_seconds
+            )
             self._retry_failures = [t for t in self._retry_failures if t > cutoff_time]
-            
+
             return {
                 "failures_1h": len(self._retry_failures),
                 "failure_rate": len(self._retry_failures) / 3600.0,  # Per second
-                "total_attempts": self.retry_tracker.total_attempts if self.retry_tracker else 0,
+                "total_attempts": (
+                    self.retry_tracker.total_attempts if self.retry_tracker else 0
+                ),
             }
-    
+
     def _get_components_health(self) -> Dict[str, Dict[str, Any]]:
         """Get health status of all registered components."""
         result = {}
         for name, health in self.component_health._components.items():
             result[name] = health.to_dict()
         return result
-    
+
     def _get_uptime_seconds(self) -> float:
         """Get system uptime in seconds."""
         return (datetime.utcnow() - self.start_time).total_seconds()
-    
+
     def record_retry_failure(self):
         """Record a retry failure for tracking."""
         with self._lock:
             self._retry_failures.append(datetime.utcnow())
-    
-    async def cascade_fallback(self, state: Optional[Dict[str, Any]] = None) -> FallbackMode:
+
+    async def cascade_fallback(
+        self, state: Optional[Dict[str, Any]] = None
+    ) -> FallbackMode:
         """
         Determine fallback mode based on system health.
-        
+
         Progressive cascade:
         1. PRIMARY: All systems healthy
         2. HEURISTIC: Circuit breaker open OR high retry failure rate
         3. SAFE: Multiple component failures
-        
+
         Args:
             state: Optional pre-computed health state (for efficiency)
-        
+
         Returns:
             New fallback mode
         """
         if state is None:
             state = await self.get_comprehensive_state()
-        
+
         cb_state = state.get("circuit_breaker", {})
         retry_state = state.get("retry", {})
         system_state = state.get("system", {})
-        
+
         old_mode = self.fallback_mode
-        
+
         # Determine new mode
         if system_state.get("failed_components", 0) >= 2:
             new_mode = FallbackMode.SAFE
@@ -244,20 +254,22 @@ class HealthMonitor:
             new_mode = FallbackMode.HEURISTIC
         else:
             new_mode = FallbackMode.PRIMARY
-        
+
         # Record transition
         if new_mode != old_mode:
             self.fallback_mode = new_mode
-            self._fallback_cascade_log.append({
-                "timestamp": datetime.utcnow().isoformat(),
-                "from": old_mode.value,
-                "to": new_mode.value,
-                "reason": self._get_cascade_reason(cb_state, retry_state, system_state),
-            })
-            logger.warning(
-                f"Fallback cascade: {old_mode.value} → {new_mode.value}"
+            self._fallback_cascade_log.append(
+                {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "from": old_mode.value,
+                    "to": new_mode.value,
+                    "reason": self._get_cascade_reason(
+                        cb_state, retry_state, system_state
+                    ),
+                }
             )
-        
+            logger.warning(f"Fallback cascade: {old_mode.value} → {new_mode.value}")
+
         # Update metrics
         mode_to_value = {
             FallbackMode.PRIMARY: 0,
@@ -265,9 +277,9 @@ class HealthMonitor:
             FallbackMode.SAFE: 2,
         }
         FALLBACK_MODE_GAUGE.set(mode_to_value.get(self.fallback_mode, 0))
-        
+
         return self.fallback_mode
-    
+
     def _get_cascade_reason(
         self,
         cb_state: Dict[str, Any],
@@ -276,14 +288,14 @@ class HealthMonitor:
     ) -> str:
         """Generate reason for fallback cascade."""
         reasons = []
-        
+
         if cb_state.get("state") == "OPEN":
             reasons.append("circuit_open")
         if retry_state.get("failures_1h", 0) > 50:
             reasons.append(f"high_retry_failures({retry_state['failures_1h']})")
         if system_state.get("failed_components", 0) > 0:
             reasons.append(f"component_failures({system_state['failed_components']})")
-        
+
         return "; ".join(reasons) if reasons else "unknown"
 
 
@@ -291,7 +303,9 @@ class HealthMonitor:
 # FASTAPI ROUTER
 # ============================================================================
 
-router = APIRouter(prefix="/health", tags=["health"], responses={500: {"description": "Server error"}})
+router = APIRouter(
+    prefix="/health", tags=["health"], responses={500: {"description": "Server error"}}
+)
 
 # Global health monitor instance (will be initialized in main.py)
 _health_monitor: Optional[HealthMonitor] = None
@@ -315,7 +329,7 @@ def get_health_monitor() -> HealthMonitor:
 async def prometheus_metrics():
     """
     Prometheus /metrics endpoint.
-    
+
     Returns metrics in Prometheus text format.
     Used by Prometheus scraper for monitoring.
     """
@@ -331,7 +345,7 @@ async def prometheus_metrics():
 async def health_state():
     """
     Comprehensive health snapshot for dashboard.
-    
+
     Returns JSON with:
     - System health status
     - Circuit breaker state
@@ -339,7 +353,7 @@ async def health_state():
     - Fallback mode
     - Component health details
     - System uptime
-    
+
     Used by Streamlit dashboard for live updates.
     """
     try:
@@ -357,7 +371,7 @@ async def health_state():
 async def trigger_cascade():
     """
     Trigger fallback cascade evaluation.
-    
+
     Determines current fallback mode based on system health.
     Can be called by external orchestrators.
     """
@@ -377,23 +391,23 @@ async def trigger_cascade():
 async def readiness_check():
     """
     Kubernetes-style readiness check.
-    
+
     Returns 200 if system is ready to accept traffic.
     Returns 503 if in safe mode or components are unavailable.
     """
     try:
         monitor = get_health_monitor()
         state = await monitor.get_comprehensive_state()
-        
+
         system_health = state.get("system", {})
         fallback = state.get("fallback", {})
-        
+
         # Ready if primary mode and no failed components
         is_ready = (
             fallback.get("mode") == FallbackMode.PRIMARY.value
             and system_health.get("failed_components", 0) == 0
         )
-        
+
         if is_ready:
             return {"status": "ready"}
         else:
@@ -412,7 +426,7 @@ async def readiness_check():
 async def liveness_check():
     """
     Kubernetes-style liveness check.
-    
+
     Returns 200 if service is alive and responsive.
     """
     try:

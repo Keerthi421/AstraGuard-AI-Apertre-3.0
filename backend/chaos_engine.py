@@ -296,12 +296,13 @@ class ChaosEngine:
             # Inject Redis failure to trigger recovery actions
             result = await self.inject_faults("redis_failure", duration_seconds=15)
 
-            # Check recovery action history
+            # Check recovery action history via status endpoint
             await asyncio.sleep(2)
-            async with self.session.get(f"{self.base_url}/recovery/metrics") as resp:
+            async with self.session.get(f"{self.base_url}/recovery/status") as resp:
                 if resp.status == 200:
-                    metrics = await resp.json()
-                    action_count = metrics.get("action_count", 0)
+                    status_data = await resp.json()
+                    metrics = status_data.get("metrics", {})
+                    action_count = metrics.get("total_actions_executed", 0)
                     logger.info(f"Recovery actions executed: {action_count}")
                     return action_count > 0
 
@@ -325,7 +326,7 @@ class ChaosEngine:
             async with self.session.get(f"{self.base_url}/cluster/leader") as resp:
                 if resp.status == 200:
                     leader_data = await resp.json()
-                    original_leader = leader_data.get("instance_id")
+                    original_leader = leader_data.get("leader")
                     logger.info(f"Original leader: {original_leader}")
 
             # Simulate leader failure by checking consensus under stress

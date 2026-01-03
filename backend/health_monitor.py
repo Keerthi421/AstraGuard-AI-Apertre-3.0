@@ -196,9 +196,20 @@ class HealthMonitor:
             )
             self._retry_failures = [t for t in self._retry_failures if t > cutoff_time]
 
+            failure_count = len(self._retry_failures)
+            
+            # Determine retry state based on failure count
+            if failure_count < 5:
+                state = "STABLE"
+            elif failure_count < 20:
+                state = "ELEVATED"
+            else:
+                state = "CRITICAL"
+
             return {
-                "failures_1h": len(self._retry_failures),
-                "failure_rate": len(self._retry_failures) / 3600.0,  # Per second
+                "state": state,
+                "failures_1h": failure_count,
+                "failure_rate": failure_count / 3600.0,  # Per second
                 "total_attempts": (
                     self.retry_tracker.total_attempts if self.retry_tracker else 0
                 ),

@@ -142,6 +142,8 @@ class ResourceMonitor:
             # CPU usage (interval=0 for non-blocking return)
             # This returns usage since last call, which is ideal for periodic monitoring
             cpu_percent = psutil.cpu_percent(interval=0)
+            # CPU usage (1 second interval for accuracy)
+            cpu_percent = psutil.cpu_percent(interval=0.1)
             
             # Memory usage
             memory = psutil.virtual_memory()

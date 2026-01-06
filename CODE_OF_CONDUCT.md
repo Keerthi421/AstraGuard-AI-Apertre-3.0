@@ -11,16 +11,16 @@ We are committed to fostering an environment that respects the dignity, rights, 
 ---
 ### Expected Behavior
 
-All participants are expected to:
-   - Be respectful, professional, and considerate in communication.
-   - Focus discussions on technical merit and project goals.
-   - Give and accept clear, direct, and constructive feedback.
-   - Take responsibility for mistakes and work to correct them.
-   - Respect different experience levels while maintaining high standards.
-   - Credit sources appropriately and respect intellectual property.
-   - Protect sensitive information and follow responsible security disclosure practices.
-   - Act in ways that support a safe, productive, and learning-focused community.
+While acknowledging differences in social norms, we all strive to meet our community's expectations for positive behavior. We also understand that our words and actions may be interpreted differently than we intend based on culture, background, or native language.
 
+With these considerations in mind, we agree to behave mindfully toward each other and act in ways that center our shared values, including:
+1. Respecting the **purpose of our community**, our activities, and our ways of gathering.
+2. Engaging **kindly and honestly** with others.
+3. Respecting **different viewpoints** and experiences.
+4. **Taking responsibility** for our actions and contributions.
+5. Gracefully giving and accepting **constructive feedback**.
+6. Committing to **repairing harm** when it occurs.
+7. Behaving in other ways that promote and sustain the **well-being of our community**.
 ---
 ### Unacceptable Behavior
 

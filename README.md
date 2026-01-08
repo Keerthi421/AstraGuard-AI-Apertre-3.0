@@ -37,18 +37,18 @@
 
 ## 🏆 Our Amazing Contributors
 
-A huge thank you to all the talented developers who have contributed to AstraGuard AI
+### A huge thank you to all the talented developers who have contributed to AstraGuard AI
 
 <div >
 
-### 🌟 Hall of Fame
+## 🌟 Hall of Fame
 
-<a href="https://github.com/sr-857/AstraGuard-AI/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=sr-857/AstraGuard-AI&max=300" />
+
+  <img src="https://contrib.rocks/image?repo=sr-857/AstraGuard-AI" />
 </a>
 
 
-# _Want to see your avatar here? [Make your first contribution today!](CONTRIBUTING.md)_
+## _Want to see your avatar here? [Make your first contribution today!](CONTRIBUTING.md)_
 
 
 

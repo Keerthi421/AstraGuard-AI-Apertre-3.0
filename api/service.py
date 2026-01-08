@@ -86,7 +86,7 @@ class ChaosRequest(BaseModel):
 
 
 
-def initialize_components():
+async def initialize_components():
     """Initialize application components (called on startup or in tests)."""
     global state_machine, policy_loader, phase_aware_handler, memory_store, predictive_engine
 
@@ -186,7 +186,7 @@ async def lifespan(app: FastAPI):
     _check_credential_security()
 
     # Initialize components
-    initialize_components()
+    await initialize_components()
     
     # Pre-load anomaly detection model async
     await load_model()

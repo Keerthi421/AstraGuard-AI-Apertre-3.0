@@ -8,10 +8,14 @@ from datetime import datetime
 from api.service import app, initialize_components
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_components():
+@pytest.fixture(autouse=True)
+async def setup_components():
     """Initialize components before all tests."""
-    initialize_components()
+    await initialize_components()
+    # Reset memory store to ensure test isolation
+    from api.service import memory_store
+    if memory_store:
+        memory_store.memory = []
 
 
 @pytest.fixture(autouse=True)

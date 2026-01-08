@@ -23,7 +23,7 @@
 - [ ] Create core/resource_monitor.py (already exists, review and enhance)
 - [ ] Add @with_timeout to anomaly_detector
 - [ ] Add @with_timeout to policy_engine
-- [ ] Add resource checks to health_monitor
+- [x] Add resource checks to health_monitor (comprehensive tests added)
 
 ### 3. Implement Rate Limiting (2-3 hrs)
 - [ ] Create core/rate_limiter.py

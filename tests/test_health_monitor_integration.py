@@ -105,6 +105,23 @@ def health_state_sample():
             "failure_rate": 0.001,
             "total_attempts": 50,
         },
+        "resources": {
+            "status": {
+                "cpu": "healthy",
+                "memory": "healthy",
+                "disk": "healthy",
+                "overall": "healthy"
+            },
+            "current_metrics": {
+                "cpu_percent": 25.0,
+                "memory_percent": 45.0,
+                "memory_available_mb": 4096.0,
+                "disk_usage_percent": 60.0,
+                "process_memory_mb": 150.0,
+                "timestamp": datetime.utcnow().isoformat()
+            },
+            "available": True
+        },
         "fallback": {
             "mode": "primary",
             "cascade_log": [],
@@ -573,6 +590,157 @@ async def test_fallback_manager_detect_anomaly_error_handling(fallback_manager):
 
 
 # ============================================================================
+# RESOURCE MONITORING INTEGRATION TESTS
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_resource_monitoring_in_comprehensive_state(health_monitor):
+    """Test that resource monitoring is included in comprehensive health state."""
+    state = await health_monitor.get_comprehensive_state()
+
+    assert "resources" in state
+    assert "status" in state["resources"]
+    assert "current_metrics" in state["resources"]
+    assert "available" in state["resources"]
+
+    # Check resource status structure
+    resource_status = state["resources"]["status"]
+    assert "cpu" in resource_status
+    assert "memory" in resource_status
+    assert "disk" in resource_status
+    assert "overall" in resource_status
+
+
+@pytest.mark.asyncio
+async def test_resource_monitoring_healthy_state(health_monitor):
+    """Test resource monitoring reports healthy state."""
+    state = await health_monitor.get_comprehensive_state()
+
+    resource_info = state["resources"]
+    assert resource_info["available"] is True
+
+    # Should have current metrics
+    metrics = resource_info["current_metrics"]
+    assert "cpu_percent" in metrics
+    assert "memory_percent" in metrics
+    assert "memory_available_mb" in metrics
+    assert "disk_usage_percent" in metrics
+    assert "process_memory_mb" in metrics
+    assert "timestamp" in metrics
+
+
+@pytest.mark.asyncio
+async def test_cascade_to_safe_resource_critical(health_monitor, health_state_sample):
+    """Test cascade to SAFE mode when resource status is critical."""
+    health_state_sample["resources"]["status"]["overall"] = "critical"
+
+    mode = await health_monitor.cascade_fallback(health_state_sample)
+
+    assert mode == FallbackMode.SAFE
+    assert health_monitor.fallback_mode == FallbackMode.SAFE
+
+
+@pytest.mark.asyncio
+async def test_cascade_resource_critical_with_component_failures(health_monitor, health_state_sample):
+    """Test cascade prioritizes SAFE mode when both resource critical and component failures."""
+    health_state_sample["resources"]["status"]["overall"] = "critical"
+    health_state_sample["system"]["failed_components"] = 1  # Less than 2
+
+    mode = await health_monitor.cascade_fallback(health_state_sample)
+
+    assert mode == FallbackMode.SAFE
+
+
+@pytest.mark.asyncio
+async def test_cascade_resource_warning_no_transition(health_monitor, health_state_sample):
+    """Test cascade does not transition to SAFE for resource warning alone."""
+    health_state_sample["resources"]["status"]["overall"] = "warning"
+
+    mode = await health_monitor.cascade_fallback(health_state_sample)
+
+    assert mode == FallbackMode.PRIMARY
+
+
+@pytest.mark.asyncio
+async def test_resource_monitoring_error_handling(health_monitor):
+    """Test resource monitoring handles errors gracefully."""
+    # Mock resource monitor to raise exception
+    original_monitor = health_monitor.resource_monitor
+    mock_monitor = Mock()
+    mock_monitor.check_resource_health.side_effect = Exception("Resource check failed")
+    health_monitor.resource_monitor = mock_monitor
+
+    try:
+        state = await health_monitor.get_comprehensive_state()
+
+        resource_info = state["resources"]
+        assert resource_info["available"] is False
+        assert resource_info["status"]["overall"] == "unknown"
+        assert resource_info["current_metrics"] == {}
+    finally:
+        # Restore original monitor
+        health_monitor.resource_monitor = original_monitor
+
+
+@pytest.mark.asyncio
+async def test_resource_monitoring_cascade_reason_logging(health_monitor, health_state_sample):
+    """Test cascade logs resource exhaustion reasons."""
+    health_state_sample["resources"]["status"]["overall"] = "critical"
+
+    await health_monitor.cascade_fallback(health_state_sample)
+
+    # Check cascade log contains resource exhaustion reason
+    assert len(health_monitor._fallback_cascade_log) == 1
+    log_entry = health_monitor._fallback_cascade_log[0]
+    assert "resource_exhaustion" in log_entry["reason"]
+
+
+@pytest.mark.asyncio
+async def test_resource_monitoring_integration_with_circuit_breaker(health_monitor, health_state_sample):
+    """Test resource monitoring works alongside circuit breaker cascade logic."""
+    # Both circuit breaker open AND resource critical should cascade to SAFE
+    health_state_sample["circuit_breaker"]["state"] = "OPEN"
+    health_state_sample["resources"]["status"]["overall"] = "critical"
+
+    mode = await health_monitor.cascade_fallback(health_state_sample)
+
+    assert mode == FallbackMode.SAFE  # Resource critical takes precedence
+
+
+@pytest.mark.asyncio
+async def test_resource_monitoring_metrics_inclusion(health_monitor):
+    """Test resource metrics are properly included in health state."""
+    state = await health_monitor.get_comprehensive_state()
+
+    resource_info = state["resources"]
+    metrics = resource_info["current_metrics"]
+
+    # All expected metrics should be present and numeric
+    assert isinstance(metrics["cpu_percent"], (int, float))
+    assert isinstance(metrics["memory_percent"], (int, float))
+    assert isinstance(metrics["memory_available_mb"], (int, float))
+    assert isinstance(metrics["disk_usage_percent"], (int, float))
+    assert isinstance(metrics["process_memory_mb"], (int, float))
+    assert isinstance(metrics["timestamp"], str)
+
+
+@pytest.mark.asyncio
+async def test_resource_monitoring_status_consistency(health_monitor):
+    """Test resource status values are consistent with expected states."""
+    state = await health_monitor.get_comprehensive_state()
+
+    resource_status = state["resources"]["status"]
+
+    # Status values should be one of the expected states
+    valid_states = ["healthy", "warning", "critical", "unknown"]
+    assert resource_status["overall"] in valid_states
+    assert resource_status["cpu"] in valid_states
+    assert resource_status["memory"] in valid_states
+    assert resource_status["disk"] in valid_states
+
+
+# ============================================================================
 # PERFORMANCE TESTS
 # ============================================================================
 
@@ -581,24 +749,24 @@ async def test_fallback_manager_detect_anomaly_error_handling(fallback_manager):
 async def test_health_state_performance(health_monitor):
     """Test health state retrieval completes quickly."""
     import time
-    
+
     start = time.time()
     await health_monitor.get_comprehensive_state()
     duration = time.time() - start
-    
-    # Should complete in < 500ms
-    assert duration < 0.5
+
+    # Should complete in < 100ms
+    assert duration < 0.1
 
 
 @pytest.mark.asyncio
 async def test_cascade_performance(health_monitor, health_state_sample):
     """Test cascade evaluation completes quickly."""
     import time
-    
+
     start = time.time()
     for _ in range(100):
         await health_monitor.cascade_fallback(health_state_sample)
     duration = time.time() - start
-    
+
     # Should complete 100 cascades in < 500ms
     assert duration < 0.5

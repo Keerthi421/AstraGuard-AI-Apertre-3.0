@@ -623,8 +623,8 @@ async def _process_telemetry(telemetry: TelemetryInput, request_start: float) ->
 async def get_latest_telemetry():
     """Get the most recent telemetry data point."""
     if latest_telemetry_data is None:
-        return {"data": None, "message": "No telemetry received yet"}
-    return latest_telemetry_data
+        return create_response("no_data", {"data": None, "message": "No telemetry received yet"})
+    return create_response("success", latest_telemetry_data)
 
 
 @app.post("/api/v1/telemetry/batch", response_model=BatchAnomalyResponse)
@@ -928,7 +928,10 @@ async def get_replay_session(incident_type: str = "VOLTAGE_SPIKE"):
             "anomaly_score": 0.8 if (20 < i < 40) else 0.1 # Mock score
         })
         
-    return {"incident": incident_type, "frames": replay_data}
+    return create_response("success", {
+        "incident": incident_type,
+        "frames": replay_data
+    })
 
 
 # ============================================================================

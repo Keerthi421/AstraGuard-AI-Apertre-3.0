@@ -12,6 +12,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!frontend/**/lib/
 lib64/
 parts/
 sdist/
@@ -45,3 +46,4 @@ coverage*.xml
 node_modules/
 .next/
 .turbo/
+!**/.vscode/settings.json

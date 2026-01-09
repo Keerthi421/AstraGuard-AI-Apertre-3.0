@@ -3,7 +3,7 @@ import { KPI } from '../../types/systems';
 
 interface Props extends KPI { }
 
-export const KPICard: React.FC<Props> = ({ label, value, trend, progress, unit }) => {
+export const KPICard: React.FC<Props> = ({ label, value, trend, progress, unit, riskScore, riskHistory }) => {
     const trendIcon = trend >= 0 ? '↗' : '↘';
     const trendColor = trend >= 0 ? 'text-green-400' : 'text-red-400';
 
@@ -50,9 +50,34 @@ export const KPICard: React.FC<Props> = ({ label, value, trend, progress, unit }
                 </defs>
             </svg>
 
+            {/* Risk Indicator */}
+            <div className="mt-4 pt-4 border-t border-slate-800/50">
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Predictive Risk</span>
+                    <span className={`text-xs font-mono font-bold ${(riskScore || 0) > 70 ? 'text-red-400' : (riskScore || 0) > 40 ? 'text-amber-400' : 'text-emerald-400'
+                        }`}>
+                        {riskScore}%
+                    </span>
+                </div>
+                {riskHistory && (
+                    <div className="h-8 flex items-end gap-0.5">
+                        {riskHistory.map((h, i) => (
+                            <div
+                                key={i}
+                                className={`flex-1 rounded-sm transition-all duration-500 ${h > 70 ? 'bg-red-500/40' : h > 40 ? 'bg-amber-500/30' : 'bg-emerald-500/20'
+                                    }`}
+                                style={{ height: `${Math.max(10, h)}%` }}
+                            ></div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             {/* Trend */}
-            <div className={`text-sm font-mono font-bold ${trendColor}`}>
-                {trendIcon} {Math.abs(trend).toFixed(trend > 1 ? 0 : 2)}
+            <div className={`mt-2 text-[10px] font-mono font-bold ${trendColor} flex items-center gap-1`}>
+                <span>{trendIcon}</span>
+                <span>{Math.abs(trend).toFixed(trend > 1 ? 0 : 2)}%</span>
+                <span className="text-slate-600 font-normal ml-auto">VOLATILITY</span>
             </div>
         </div>
     );

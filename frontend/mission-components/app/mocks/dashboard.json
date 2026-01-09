@@ -14,7 +14,7 @@
         "orbitSlot": "A1",
         "latency": 45,
         "task": "Data Dump",
-        "signal": 98
+        "signalStrength": 98
       },
       {
         "id": "sat-2",
@@ -24,7 +24,7 @@
         "orbitSlot": "B2",
         "latency": 120,
         "task": "Relay",
-        "signal": 95
+        "signalStrength": 95
       },
       {
         "id": "sat-3",
@@ -34,7 +34,7 @@
         "orbitSlot": "M1",
         "latency": 200,
         "task": "Calibration",
-        "signal": 70
+        "signalStrength": 70
       },
       {
         "id": "sat-4",
@@ -44,7 +44,7 @@
         "orbitSlot": "A2",
         "latency": 48,
         "task": "Imaging",
-        "signal": 99
+        "signalStrength": 99
       },
       {
         "id": "sat-5",
@@ -54,7 +54,7 @@
         "orbitSlot": "B3",
         "latency": 500,
         "task": "Reboot",
-        "signal": 40
+        "signalStrength": 40
       },
       {
         "id": "sat-6",
@@ -64,36 +64,80 @@
         "orbitSlot": "A3",
         "latency": 42,
         "task": "Idle",
-        "signal": 97
+        "signalStrength": 97
       }
     ],
     "phases": [
       {
-        "name": "Launch",
+        "name": "LAUNCH",
         "status": "complete",
         "progress": 100,
         "isActive": false
       },
       {
-        "name": "Orbit Insertion",
+        "name": "DEPLOYMENT",
         "status": "complete",
         "progress": 100,
         "isActive": false
       },
       {
-        "name": "Stable Orbit",
+        "name": "NOMINAL_OPS",
         "status": "active",
-        "progress": 45,
-        "eta": "2h 30m",
+        "progress": 100,
+        "eta": "Ongoing",
         "isActive": true
       },
       {
-        "name": "Deorbit",
+        "name": "PAYLOAD_OPS",
+        "status": "pending",
+        "progress": 0,
+        "isActive": false
+      },
+      {
+        "name": "SAFE_MODE",
         "status": "pending",
         "progress": 0,
         "isActive": false
       }
     ],
-    "anomalies": []
+    "anomalies": [],
+    "groundStations": [
+      {
+        "id": "gs-1",
+        "name": "Svalbard-A",
+        "lat": 78.22,
+        "lng": 15.65,
+        "weather": "Clear",
+        "signalQuality": 0.98,
+        "connectedSatelliteId": "sat-1"
+      },
+      {
+        "id": "gs-2",
+        "name": "Kourou-Prime",
+        "lat": 5.16,
+        "lng": -52.64,
+        "weather": "Rain",
+        "signalQuality": 0.65,
+        "connectedSatelliteId": "sat-2"
+      },
+      {
+        "id": "gs-3",
+        "name": "Canberra-Deep",
+        "lat": -35.28,
+        "lng": 149.13,
+        "weather": "Clear",
+        "signalQuality": 0.95,
+        "connectedSatelliteId": "sat-3"
+      },
+      {
+        "id": "gs-4",
+        "name": "Haruna-Station",
+        "lat": 36.47,
+        "lng": 138.92,
+        "weather": "Storm",
+        "signalQuality": 0.42,
+        "connectedSatelliteId": "sat-1"
+      }
+    ]
   }
 }

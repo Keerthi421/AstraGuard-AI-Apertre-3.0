@@ -13,17 +13,17 @@ This starts both backend and frontend simultaneously and opens the dashboard in 
 **Terminal 1 - Start Backend API:**
 ```bash
 python run_api.py
-# Or with options:
-python run_api.py --port 8000 --host 0.0.0.0
 ```
 
-**Terminal 2 - Start Frontend:**
+**Terminal 2 - Start Frontend (Next.js):**
 ```bash
-cd frontend/astraguard-ai.site
+cd frontend/as_lp
 npm run dev
 ```
 
-Then open: http://localhost:3000
+Then open: [http://localhost:3000](http://localhost:3000)
+
+> **Note**: The dashboard now features the "Orbital Command" aesthetic with a deep space starfield, holographic glass panels, and a HUD-style interface.
 
 ## 📍 Available Endpoints
 
@@ -113,7 +113,8 @@ function MyComponent() {
 3. Verify environment variables in `.env.local`
 
 ### Frontend not connecting to backend
-1. Check `.env.local` file exists in `frontend/astraguard-ai.site/`
+### Frontend not connecting to backend
+1. Check `.env.local` file exists in `frontend/as_lp/`
 2. Ensure `NEXT_PUBLIC_API_URL=http://localhost:8000`
 3. Check browser console for CORS errors
 4. Verify backend is accessible: `curl http://localhost:8000/health`
@@ -140,8 +141,8 @@ AstraGuard-AI/
 │   ├── main.py              # Entry point
 │   └── recovery_orchestrator.py
 ├── frontend/
-│   └── astraguard-ai.site/  # Next.js application
-│       ├── app/             # App pages and layouts
+│   └── as_lp/               # Next.js application
+│       ├── app/             # App pages and layouts (Next.js 13+)
 │       ├── components/      # React components
 │       ├── lib/
 │       │   ├── api-client.ts    # API client utility

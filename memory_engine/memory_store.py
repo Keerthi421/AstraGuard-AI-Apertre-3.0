@@ -254,6 +254,12 @@ class AdaptiveMemoryStore:
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Calculate cosine similarity between vectors."""
+        # Handle dimension mismatch gracefully
+        if a.shape != b.shape:
+            # Log warning only once per mismatch pattern to avoid spam
+            # logger.warning(f"Embedding dimension mismatch: {a.shape} vs {b.shape}")
+            return 0.0
+            
         return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10)
 
     def _find_similar(

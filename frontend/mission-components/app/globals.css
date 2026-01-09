@@ -2,102 +2,170 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+@layer base {
+  :root {
+    --background: #020617;
+    --foreground: #f8fafc;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --radius: 0.5rem;
 
-body {
-  background: #000;
-  color: #fff;
-  font-family: var(--font-geist-sans);
-}
-
-:root {
-  --font-geist-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-  --bg-gradient: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
-  --glow-teal: 0 0 8px #00f5ff, 0 0 16px #00f5ff, 0 0 24px #00f5ff;
-}
-
-.dashboard-container {
-  background: var(--bg-gradient);
-  background-image:
-    radial-gradient(2px 2px at 20px 30px, #eee, transparent),
-    radial-gradient(2px 2px at 40px 70px, rgba(120, 119, 198, 0.8), transparent),
-    radial-gradient(1px 1px at 90px 40px, #fff, transparent);
-  background-repeat: repeat;
-  background-size: 100px 100px;
-  background-attachment: fixed;
-}
-
-.glow-teal { box-shadow: var(--glow-teal); }
-.glow-cyan { box-shadow: 0 0 8px #00f5ff, 0 0 16px #00f5ff, 0 0 24px #00f5ff; }
-.glow-amber { box-shadow: 0 0 8px #fbbf24, 0 0 16px #fbbf24, 0 0 24px #fbbf24; }
-.glow-red { box-shadow: 0 0 8px #ef4444, 0 0 16px #ef4444, 0 0 24px #ef4444; }
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
+    /* Semantic Status Colors */
+    --color-nominal: #22c55e;
+    --color-degraded: #eab308;
+    --color-critical: #ef4444;
+    --color-ui-accent: #3b82f6;
   }
-  to {
-    opacity: 1;
+
+  /* Stealth Theme (Extra Dark) */
+  [data-theme='stealth'] {
+    --background: #000000;
+    --foreground: #64748b;
+    --card: 0 0% 2%;
+    --border: 0 0% 10%;
+    --color-ui-accent: #1e293b;
+    --color-nominal: #064e3b;
+    --color-degraded: #422006;
+    --color-critical: #450a0a;
+  }
+
+  /* Clean Theme (Minimalist) */
+  [data-theme='clean'] {
+    --background: #0f172a;
+    --foreground: #cbd5e1;
+    --card: 222.2 47.4% 11.2%;
+    --border: 215 25% 27%;
+    --color-ui-accent: #64748b;
+    --color-nominal: #10b981;
+    --color-degraded: #f59e0b;
+    --color-critical: #f43f5e;
+  }
+
+  /* High-Visibility Theme */
+  [data-theme='high-visibility'] {
+    --background: #000000;
+    --foreground: #ffffff;
+    --card: 0 0% 5%;
+    --border: 0 0% 30%;
+    --color-ui-accent: #00ff00;
+    --color-nominal: #00ff00;
+    --color-degraded: #ffff00;
+    --color-critical: #ff0000;
+  }
+
+  .dark {
+    --background: #020617;
+    --foreground: #f8fafc;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-@keyframes glow {
-  0%, 100% {
-    box-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+@layer components {
+
+  /* Defense Ops Utility Classes (Preserved) */
+  .panel-base {
+    @apply bg-slate-900 border border-slate-800 rounded-sm shadow-sm;
   }
-  50% {
-    box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+
+  .panel-header {
+    @apply px-4 py-3 border-b border-slate-800 flex items-center justify-between;
+  }
+
+  .panel-title {
+    @apply text-sm font-semibold text-slate-100 uppercase tracking-wide;
+  }
+
+  .status-chip {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wider;
+  }
+
+  .status-nominal {
+    @apply bg-green-500/10 text-green-400 border border-green-500/20;
+  }
+
+  .status-degraded {
+    @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+  }
+
+  .status-critical {
+    @apply bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  .data-label {
+    @apply text-xs text-slate-400 uppercase tracking-wider mb-1;
+  }
+
+  .data-value {
+    @apply text-lg font-medium text-slate-100 font-mono;
   }
 }
 
-@keyframes flicker {
-  0%,
-  100% {
-    opacity: 1;
-    text-shadow: var(--glow-cyan);
+/* Landing Page Styles */
+.noise-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 50;
+  /* Lower z-index than header */
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  /* Slate 700 */
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+  /* Slate 600 */
+}
+
+::-selection {
+  background: #3b82f6;
+  /* Blue 500 */
+  color: #ffffff;
+}
+
+@layer utilities {
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
-  50% {
-    opacity: 0.95;
-    text-shadow: none;
-  }
 }
-
-@keyframes flicker-magenta {
-  0%,
-  100% {
-    opacity: 1;
-    text-shadow: var(--glow-magenta);
-  }
-  50% {
-    opacity: 0.95;
-    text-shadow: none;
-  }
-}
-
-.glow-cyan {
-  box-shadow: var(--glow-cyan);
-}
-
-.glow-magenta {
-  box-shadow: var(--glow-magenta);
-}
-
-.glow-amber {
-  box-shadow: 0 0 8px #fbbf24, 0 0 16px #fbbf24, 0 0 24px #fbbf24;
-}
-
-.glow-red {
-  box-shadow: 0 0 8px #ef4444, 0 0 16px #ef4444, 0 0 24px #ef4444;
-}
-
-.tab-active-cyan {
-  animation: flicker 2s infinite;
-}
-
-.tab-active-magenta {
-  animation: flicker-magenta 2s infinite 0.5s;}

@@ -8,16 +8,44 @@ from datetime import datetime
 from api.service import app, initialize_components
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_components():
+@pytest.fixture(autouse=True)
+async def setup_components():
     """Initialize components before all tests."""
-    initialize_components()
+    await initialize_components()
+    # Reset memory store to ensure test isolation
+    from api.service import memory_store
+    if memory_store:
+        memory_store.memory = []
 
+
+@pytest.fixture(autouse=True)
+def mock_psutil(monkeypatch):
+    """Mock psutil to prevent blocking calls during tests."""
+    monkeypatch.setattr("psutil.cpu_percent", lambda interval=None: 0.0)
+    monkeypatch.setattr("psutil.virtual_memory", lambda: type('obj', (object,), {'percent': 50.0, 'available': 1024*1024*1024})())
+
+
+
+from api.auth import get_api_key, APIKey
 
 @pytest.fixture
 def client():
-    """Create test client."""
-    return TestClient(app)
+    """Create test client with auth override."""
+    # Mock valid API key
+    async def mock_get_api_key():
+        return APIKey(
+            key="test-key",
+            name="Test Key",
+            created_at=datetime.now(),
+            permissions={"read", "write", "admin"},
+            rate_limit=10000
+        )
+    
+    app.dependency_overrides[get_api_key] = mock_get_api_key
+    with TestClient(app) as c:
+        yield c
+    # Clean up
+    app.dependency_overrides = {}
 
 
 class TestHealthEndpoints:
@@ -272,7 +300,9 @@ class TestIntegrationFlow:
         telemetry = {
             "voltage": 6.0,  # Power fault
             "temperature": 55.0,  # Thermal fault
-            "gyro": 0.3  # Attitude fault
+            "gyro": 0.3,  # Attitude fault
+            "current": 2.0,
+            "wheel_speed": 4000
         }
         telemetry_response = client.post("/api/v1/telemetry", json=telemetry)
         assert telemetry_response.status_code == 200

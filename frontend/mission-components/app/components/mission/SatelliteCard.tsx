@@ -11,8 +11,8 @@ export const SatelliteCard: React.FC<Props> = ({
   orbitSlot,
   status,
   latency,
-  task,
-  signal,
+
+  signalStrength,
   onClick,
   isSelected,
 }) => {
@@ -42,24 +42,31 @@ export const SatelliteCard: React.FC<Props> = ({
 
   return (
     <div
-      className={`group p-4 rounded-xl border-2 bg-black/30 backdrop-blur-sm cursor-pointer transition-all duration-300 hover:scale-105 hover:-translate-y-1 hover:shadow-2xl ${statusConfig.glowClass
-        } ${statusConfig.borderClass} ${isSelected ? `ring-4 ${statusConfig.ringClass} scale-105` : ''
-        }`}
+      className={`
+        p-4 rounded-xl border bg-black/40 backdrop-blur-md cursor-pointer
+        group hover:scale-[1.02] hover:-translate-y-1 hover:shadow-xl
+        transition-all duration-300 ease-out
+        ${statusConfig.glowClass} ${statusConfig.borderClass}
+        motion-safe:group-hover:[animation:lift-burst_0.6s_ease-out]
+        ${isSelected ? `ring-2 ${statusConfig.ringClass} scale-[1.02]` : ''}
+      `}
       onClick={onClick}
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-mono opacity-75">LEO-{orbitSlot}</span>
+        <span className="text-sm font-mono opacity-75 hover-glitch transition-all duration-200">LEO-{orbitSlot}</span>
         <span className="text-xl">{statusConfig.icon}</span>
       </div>
       <div className="text-lg font-bold font-mono text-white mb-1 truncate">{status}</div>
-      <div className="text-xs space-y-1 opacity-75 mb-3">
-        <div>{Math.round(latency)}ms | {task}</div>
-        <div>Signal: {signal}%</div>
+      <div className="flex justify-between text-xs font-mono text-gray-400 mt-2">
+        <div>Lat: {latency}ms</div>
+        <div>Signal: {signalStrength}%</div>
       </div>
-      <div className="w-full bg-black/50 rounded-full h-2">
+
+      {/* Signal Bar */}
+      <div className="w-full bg-gray-800 h-1 mt-1 rounded-full overflow-hidden">
         <div
-          className={`bg-gradient-to-r ${statusConfig.barClass} h-2 rounded-full transition-all`}
-          style={{ width: `${Math.min(signal, 100)}%` }}
+          className={`h-full ${status === 'Critical' ? 'bg-red-500' : 'bg-teal-500'}`}
+          style={{ width: `${Math.min(signalStrength, 100)}%` }}
         />
       </div>
     </div>

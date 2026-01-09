@@ -6,7 +6,7 @@ FastAPI-based REST API for telemetry ingestion and anomaly detection.
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 from collections import deque
 from fastapi import FastAPI, HTTPException, status
@@ -15,6 +15,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi import FastAPI, HTTPException, status, Depends
 from contextlib import asynccontextmanager
 import secrets
+from pydantic import BaseModel
+
 
 from api.models import (
     TelemetryInput,
@@ -29,6 +31,7 @@ from api.models import (
     AnomalyHistoryResponse,
     HealthCheckResponse,
 )
+from api.auth import get_api_key, require_permission, APIKey
 from state_machine.state_engine import StateMachine, MissionPhase
 from config.mission_phase_policy_loader import MissionPhasePolicyLoader
 from anomaly_agent.phase_aware_handler import PhaseAwareAnomalyHandler
@@ -36,6 +39,11 @@ from anomaly.anomaly_detector import detect_anomaly, load_model
 from classifier.fault_classifier import classify
 from core.component_health import get_health_monitor
 from memory_engine.memory_store import AdaptiveMemoryStore
+from security_engine.predictive_maintenance import (
+    get_predictive_maintenance_engine,
+    TimeSeriesData,
+    PredictionResult
+)
 from fastapi.responses import Response
 from core.metrics import get_metrics_text, get_metrics_content_type
 from core.rate_limiter import RateLimiter, RateLimitMiddleware, get_rate_limit_config
@@ -68,7 +76,10 @@ state_machine = None
 policy_loader = None
 phase_aware_handler = None
 memory_store = None
+predictive_engine = None
+latest_telemetry_data = None # Store latest telemetry for dashboard
 anomaly_history = deque(maxlen=MAX_ANOMALY_HISTORY_SIZE)  # Bounded deque prevents memory exhaustion
+active_faults = {} # Stores active chaos experiments: {fault_type: expiration_timestamp}
 start_time = time.time()
 
 # Rate limiting
@@ -77,9 +88,9 @@ telemetry_limiter = None
 api_limiter = None
 
 
-def initialize_components():
+async def initialize_components():
     """Initialize application components (called on startup or in tests)."""
-    global state_machine, policy_loader, phase_aware_handler, memory_store
+    global state_machine, policy_loader, phase_aware_handler, memory_store, predictive_engine
 
     if state_machine is None:
         state_machine = StateMachine()
@@ -89,6 +100,8 @@ def initialize_components():
         phase_aware_handler = PhaseAwareAnomalyHandler(state_machine, policy_loader)
     if memory_store is None:
         memory_store = AdaptiveMemoryStore()
+    if predictive_engine is None:
+        predictive_engine = await get_predictive_maintenance_engine(memory_store)
 
 
 def _check_credential_security():
@@ -177,7 +190,10 @@ async def lifespan(app: FastAPI):
     _check_credential_security()
 
     # Initialize components
-    initialize_components()
+    await initialize_components()
+    
+    # Pre-load anomaly detection model async
+    await load_model()
 
     # Initialize rate limiting
     try:
@@ -367,14 +383,34 @@ async def metrics(username: str = Depends(get_current_username)):
 
 
 @app.post("/api/v1/telemetry", response_model=AnomalyResponse, status_code=status.HTTP_200_OK)
-async def submit_telemetry(telemetry: TelemetryInput):
+async def submit_telemetry(telemetry: TelemetryInput, api_key: APIKey = Depends(get_api_key)):
     """
     Submit single telemetry point for anomaly detection.
+
+    Requires API key authentication with 'write' permission.
 
     Returns:
         AnomalyResponse with detection results and recommended actions
     """
     request_start = time.time()
+    
+    # CHAROS INJECTION HOOK
+    # 1. Network Latency Injection
+    if "network_latency" in active_faults:
+        if time.time() < active_faults["network_latency"]:
+            time.sleep(2.0) # Simulate 2s latency
+        else:
+            del active_faults["network_latency"] # Expired
+
+    # 2. Model Loader Failure Injection
+    if "model_loader" in active_faults:
+        if time.time() < active_faults["model_loader"]:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Chaos Injection: Model Loader Failed"
+            )
+        else:
+            del active_faults["model_loader"] # Expired
     
     try:
         if OBSERVABILITY_ENABLED:
@@ -419,11 +455,57 @@ async def _process_telemetry(telemetry: TelemetryInput, request_start: float) ->
         "wheel_speed": telemetry.wheel_speed or 0.0,
     }
 
+    # Update global latest telemetry
+    global latest_telemetry_data
+    latest_telemetry_data = {
+        "data": data,
+        "timestamp": datetime.now()
+    }
+
     # Detect anomaly (uses heuristic if model not loaded)
-    is_anomaly, anomaly_score = detect_anomaly(data)
+    is_anomaly, anomaly_score = await detect_anomaly(data)
 
     # Classify fault type
     anomaly_type = classify(data)
+
+    # Predictive Maintenance: Add training data and check for predictions
+    predictive_actions = []
+    if predictive_engine:
+        try:
+            # Create time-series data point
+            ts_data = TimeSeriesData(
+                timestamp=datetime.now(),
+                cpu_usage=telemetry.cpu_usage or 0.0,
+                memory_usage=telemetry.memory_usage or 0.0,
+                network_latency=telemetry.network_latency or 0.0,
+                disk_io=telemetry.disk_io or 0.0,
+                error_rate=telemetry.error_rate or 0.0,
+                response_time=telemetry.response_time or 0.0,
+                active_connections=telemetry.active_connections or 0,
+                failure_occurred=is_anomaly
+            )
+
+            # Add training data
+            await predictive_engine.add_training_data(ts_data)
+
+            # Check for failure predictions
+            predictions = await predictive_engine.predict_failures(ts_data)
+
+            if predictions:
+                logger.info(f"Predictive maintenance: {len(predictions)} failure predictions made")
+
+                # Trigger preventive actions
+                actions = await predictive_engine.trigger_preventive_actions(predictions)
+                predictive_actions = actions
+
+                # Log predictions for monitoring
+                for prediction in predictions:
+                    logger.warning(f"PREDICTED FAILURE: {prediction.failure_type.value} "
+                                 f"at {prediction.predicted_time} (prob: {prediction.probability:.2f})")
+
+        except Exception as e:
+            logger.error(f"Predictive maintenance failed: {e}")
+            # Don't fail the request if predictive maintenance fails
 
     # Get phase-aware decision if anomaly detected
     if is_anomaly:
@@ -501,10 +583,20 @@ async def _process_telemetry(telemetry: TelemetryInput, request_start: float) ->
     return response
 
 
+@app.get("/api/v1/telemetry/latest")
+async def get_latest_telemetry():
+    """Get the most recent telemetry data point."""
+    if latest_telemetry_data is None:
+        return {"data": None, "message": "No telemetry received yet"}
+    return latest_telemetry_data
+
+
 @app.post("/api/v1/telemetry/batch", response_model=BatchAnomalyResponse)
-async def submit_telemetry_batch(batch: TelemetryBatch):
+async def submit_telemetry_batch(batch: TelemetryBatch, api_key: APIKey = Depends(get_api_key)):
     """
     Submit batch of telemetry points for anomaly detection.
+
+    Requires API key authentication with 'write' permission.
 
     Returns:
         BatchAnomalyResponse with aggregated results
@@ -526,10 +618,23 @@ async def submit_telemetry_batch(batch: TelemetryBatch):
 
 
 @app.get("/api/v1/status", response_model=SystemStatus)
-async def get_status():
-    """Get system health and status."""
+async def get_status(api_key: APIKey = Depends(get_api_key)):
+    """Get system health and status.
+
+    Requires API key authentication with 'read' permission.
+    """
     health_monitor = get_health_monitor()
     components = health_monitor.get_all_health()
+
+    # CHAROS INJECTION HOOK: Redis Failure
+    if "redis_failure" in active_faults:
+        if time.time() < active_faults["redis_failure"]:
+            # Simulate Redis being down/degraded
+            if "memory_store" in components:
+                components["memory_store"]["status"] = "DEGRADED"
+                components["memory_store"]["details"] = "ConnectionRefusedError: Chaos Injection"
+        else:
+            del active_faults["redis_failure"] # Expired
 
     return SystemStatus(
         status="healthy" if all(
@@ -543,8 +648,11 @@ async def get_status():
 
 
 @app.get("/api/v1/phase", response_model=dict)
-async def get_phase():
-    """Get current mission phase."""
+async def get_phase(api_key: APIKey = Depends(get_api_key)):
+    """Get current mission phase.
+
+    Requires API key authentication with 'read' permission.
+    """
     current_phase = state_machine.get_current_phase()
     constraints = phase_aware_handler.get_phase_constraints(current_phase)
 
@@ -558,8 +666,11 @@ async def get_phase():
 
 
 @app.post("/api/v1/phase", response_model=PhaseUpdateResponse)
-async def update_phase(request: PhaseUpdateRequest):
-    """Update mission phase."""
+async def update_phase(request: PhaseUpdateRequest, api_key: APIKey = Depends(require_permission("write"))):
+    """Update mission phase.
+
+    Requires API key authentication with 'write' permission.
+    """
     try:
         target_phase = MissionPhase(request.phase.value)
 
@@ -589,8 +700,11 @@ async def update_phase(request: PhaseUpdateRequest):
 
 
 @app.get("/api/v1/memory/stats", response_model=MemoryStats)
-async def get_memory_stats():
-    """Query memory store statistics."""
+async def get_memory_stats(api_key: APIKey = Depends(get_api_key)):
+    """Query memory store statistics.
+
+    Requires API key authentication with 'read' permission.
+    """
     stats = memory_store.get_stats()
 
     return MemoryStats(
@@ -604,6 +718,7 @@ async def get_memory_stats():
 
 @app.get("/api/v1/history/anomalies", response_model=AnomalyHistoryResponse)
 async def get_anomaly_history(
+    api_key: str = Depends(get_api_key),
     start_time: datetime = None,
     end_time: datetime = None,
     limit: int = 100,
@@ -634,6 +749,278 @@ async def get_anomaly_history(
     )
 
 
+@app.post("/api/v1/chaos/inject")
+async def inject_fault(request: ChaosRequest):
+    """Trigger a chaos experiment."""
+    expiration = time.time() + request.duration_seconds
+    active_faults[request.fault_type] = expiration
+    return {"status": "injected", "fault": request.fault_type, "expires_at": expiration}
+
+
+
+class AnalysisRequest(BaseModel):
+    anomaly_id: str
+    context: dict = {}
+
+class AnalysisResponse(BaseModel):
+    anomaly_id: str
+    analysis: str
+    recommendation: str
+    confidence: float
+
+
+class UplinkCommand(BaseModel):
+    target_id: str
+    command: str
+    params: dict = {}
+
+class UplinkResponse(BaseModel):
+    status: str
+    ack_id: str
+    message: str
+    timestamp: datetime
+
+@app.post("/api/v1/uplink", response_model=UplinkResponse)
+async def send_uplink_command(cmd: UplinkCommand):
+    """
+    Send a command to a specific satellite or system.
+    """
+    # Simulate transmission delay
+    time.sleep(0.8)
+
+    ack_id = secrets.token_hex(4).upper()
+    
+    # Simple logic to generate response based on command
+    if cmd.command.upper() == "REBOOT":
+        msg = f"Reboot sequence initiated for {cmd.target_id}. Estimated downtime: 45s."
+    elif cmd.command.upper() == "DIAGNOSTICS":
+        msg = f"Diagnostics running on {cmd.target_id}. Report will be downlinked in T+120s."
+    elif cmd.command.upper() == "DEPLOY":
+        msg = f"Actuator deployment command acknowledged for {cmd.target_id}. Monitoring telemetry."
+    else:
+        msg = f"Command '{cmd.command}' queued for uplink to {cmd.target_id}."
+
+    return UplinkResponse(
+        status="sent",
+        ack_id=ack_id,
+        message=msg,
+        timestamp=datetime.now()
+    )
+
+@app.post("/api/v1/analysis/investigate", response_model=AnalysisResponse)
+
+async def investigate_anomaly(request: AnalysisRequest):
+    """
+    AI-powered anomaly investigation (Mocked for MVP).
+    Analyzes telemetry context to provide explanations and recommendations.
+    """
+    # Simulate processing delay (AI thinking)
+    time.sleep(1.5)
+    
+    context = request.context
+    metric = context.get('metric', 'Unknown')
+    value = context.get('value', 'N/A')
+    
+    # Heuristic-based "Generative" responses
+    if "Temp" in metric:
+        analysis = f"Thermal analysis indicates a rapid temperature excursion to {value}. This pattern is consistent with obstructed radiator flow or sensor bias drift."
+        recommendation = "1. Verify radiator louver positions. \n2. Check thermal sensor redundancy. \n3. Initiate cooling cycle if temp > 85°C."
+        confidence = 0.92
+    elif "Voltage" in metric or "Current" in metric:
+        analysis = f"Power subsystem detected instability ({value}). The fluctuations suggest a potential short-circuit on the secondary bus or battery cell degradation."
+        recommendation = "1. Isolate non-essential loads. \n2. Switch to backup battery logic. \n3. Monitor bus voltage for impedance changes."
+        confidence = 0.88
+    elif "Gyro" in metric:
+        analysis = "Attitude control system (ACS) reporting gyroscopic drift beyond nominal bounds. Likely caused by reaction wheel saturation or solar pressure torque."
+        recommendation = "1. Momentum dumping maneuver required. \n2. recalibrate star trackers. \n3. Switch to magnetorquer-only control temporarily."
+        confidence = 0.85
+    else:
+        analysis = f"Unusual pattern detected in {metric} ({value}). Correlation with historical anomalies suggests a transient single-event upset (SEU) in the telemetry encoder."
+        recommendation = "1. Acknowledge and monitor for recurrence. \n2. Perform soft reset of telemetry unit if persists > 5min."
+        confidence = 0.75
+
+    return AnalysisResponse(
+        anomaly_id=request.anomaly_id,
+        analysis=analysis,
+        recommendation=recommendation,
+        confidence=confidence
+    )
+
+@app.get("/api/v1/chaos/status")
+
+async def get_chaos_status():
+    """Get active chaos experiments."""
+    # Clean up expired faults
+    current_time = time.time()
+    expired = [k for k, v in active_faults.items() if current_time > v]
+    for k in expired:
+        del active_faults[k]
+        
+    return {
+        "active_faults": list(active_faults.keys()),
+        "details": active_faults
+    }
+
+
+
+@app.get("/api/v1/replay/session")
+async def get_replay_session(incident_type: str = "VOLTAGE_SPIKE"):
+    """
+    Generate a synthetic replay session (60 seconds) for a given incident type.
+    """
+    # Generate 60 points (1 per second)
+    replay_data = []
+    base_time = datetime.now() - timedelta(minutes=5)
+    
+    for i in range(60):
+        t = base_time + timedelta(seconds=i)
+        
+        # Default nominal values
+        voltage = 3.6
+        temp = 45.0
+        gyro = 0.001
+        
+        # Inject anomalies based on scenario and time (peak at 30s)
+        progress = i / 60.0
+        
+        if incident_type == "VOLTAGE_SPIKE":
+            if 20 < i < 40:
+                voltage += 1.5 * np.sin((i - 20) * 0.3) # Spike usage
+        elif incident_type == "THERMAL_RUNAWAY":
+             if i > 15:
+                 temp += (i - 15) * 1.5 # Linear increase
+        elif incident_type == "GYRO_DRIFT":
+             if i > 10:
+                 gyro += (i - 10) * 0.05
+        
+        replay_data.append({
+            "timestamp": t.isoformat(),
+            "voltage": float(voltage),
+            "temperature": float(temp),
+            "gyro": float(gyro),
+            "current": 2.1,
+            "wheel_speed": 4500.0,
+            "anomaly_score": 0.8 if (20 < i < 40) else 0.1 # Mock score
+        })
+        
+    return {"incident": incident_type, "frames": replay_data}
+
+
+# ============================================================================
+# Predictive Maintenance Endpoints
+# ============================================================================
+
+@app.post("/api/v1/predictive/train")
+async def train_predictive_models():
+    """
+    Train predictive maintenance models using collected telemetry data.
+    """
+    if not predictive_engine:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Predictive maintenance engine not initialized"
+        )
+
+    try:
+        # Train models
+        metrics = await predictive_engine.train_models()
+
+        return {
+            "status": "training_completed",
+            "metrics": metrics,
+            "timestamp": datetime.now()
+        }
+
+    except Exception as e:
+        logger.error(f"Model training failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Model training failed: {str(e)}"
+        )
+
+@app.get("/api/v1/predictive/status")
+async def get_predictive_status():
+    """
+    Get the status of the predictive maintenance system.
+    """
+    if not predictive_engine:
+        return {
+            "status": "not_initialized",
+            "message": "Predictive maintenance engine not available"
+        }
+
+    try:
+        # Get basic stats
+        training_data_count = len(predictive_engine.training_data)
+
+        return {
+            "status": "active",
+            "training_data_points": training_data_count,
+            "models_trained": len(predictive_engine.models),
+            "last_prediction": getattr(predictive_engine, '_last_prediction_time', None)
+        }
+
+    except Exception as e:
+        logger.error(f"Status check failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.post("/api/v1/predictive/predict")
+async def get_predictions(telemetry: TelemetryInput):
+    """
+    Get failure predictions for current telemetry data.
+    """
+    if not predictive_engine:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Predictive maintenance engine not initialized"
+        )
+
+    try:
+        # Create time-series data
+        ts_data = TimeSeriesData(
+            timestamp=datetime.now(),
+            cpu_usage=telemetry.cpu_usage or 0.0,
+            memory_usage=telemetry.memory_usage or 0.0,
+            network_latency=telemetry.network_latency or 0.0,
+            disk_io=telemetry.disk_io or 0.0,
+            error_rate=telemetry.error_rate or 0.0,
+            response_time=telemetry.response_time or 0.0,
+            active_connections=telemetry.active_connections or 0,
+            failure_occurred=False  # We're predicting, not reporting actual failure
+        )
+
+        # Get predictions
+        predictions = await predictive_engine.predict_failures(ts_data)
+
+        # Convert to serializable format
+        prediction_data = []
+        for pred in predictions:
+            prediction_data.append({
+                "failure_type": pred.failure_type.value,
+                "probability": pred.probability,
+                "predicted_time": pred.predicted_time.isoformat(),
+                "confidence": pred.confidence,
+                "features_used": pred.features_used,
+                "model_used": pred.model_used.value,
+                "preventive_actions": pred.preventive_actions
+            })
+
+        return {
+            "predictions": prediction_data,
+            "timestamp": datetime.now()
+        }
+
+    except Exception as e:
+        logger.error(f"Prediction failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Prediction failed: {str(e)}"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8002)

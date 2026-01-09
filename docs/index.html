@@ -1399,6 +1399,31 @@
       }
     }
   </style>
+  <style>
+	#scrollToTopBtn {
+		position: fixed;
+		bottom: 30px;
+		right: 30px;
+    width: 48px;
+    height: 48px;
+		background: #0d6efd;
+		color: white;
+		border: none;
+		padding: 12px 15px;
+		border-radius: 50%;
+		font-size: 18px;
+		cursor: pointer;
+		opacity: 0;
+		visibility: hidden;
+		transition: all 0.3s ease;
+		z-index: 9999;
+	}
+
+	#scrollToTopBtn.show {
+		opacity: 1;
+		visibility: visible;
+	}
+	</style>
 </head>
 
 <body>
@@ -2218,5 +2243,30 @@
     });
   </script>
   </div>
+<button id="scrollToTopBtn" aria-label="Scroll to top" title="Back to top">
+  ↑
+</button>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const scrollBtn = document.getElementById("scrollToTopBtn");
+
+    if (!scrollBtn) return;
+
+    window.addEventListener("scroll", () => {
+      if (window.scrollY > 300) {
+        scrollBtn.classList.add("show");
+      } else {
+        scrollBtn.classList.remove("show");
+      }
+    });
+
+    scrollBtn.addEventListener("click", () => {
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
+    });
+  });
+</script>
 </body>
 </html>

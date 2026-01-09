@@ -104,6 +104,44 @@ ANOMALY_MODEL_FALLBACK_ACTIVATIONS = Counter(
 )
 
 # ============================================================================
+# Predictive Maintenance Metrics
+# ============================================================================
+
+PREDICTIVE_MAINTENANCE_PREDICTIONS_TOTAL = Counter(
+    'astraguard_predictive_maintenance_predictions_total',
+    'Total predictive maintenance predictions made',
+    ['failure_type', 'model_type'],
+    registry=REGISTRY
+)
+
+PREDICTIVE_MAINTENANCE_ACCURACY = Gauge(
+    'astraguard_predictive_maintenance_accuracy',
+    'Accuracy of predictive maintenance models',
+    ['failure_type', 'model_type'],
+    registry=REGISTRY
+)
+
+PREDICTIVE_MAINTENANCE_PREVENTIVE_ACTIONS_TOTAL = Counter(
+    'astraguard_predictive_maintenance_preventive_actions_total',
+    'Total preventive actions triggered by predictions',
+    ['failure_type', 'action_type'],
+    registry=REGISTRY
+)
+
+PREDICTIVE_MAINTENANCE_MODEL_TRAINING_DURATION = Histogram(
+    'astraguard_predictive_maintenance_model_training_duration_seconds',
+    'Time spent training predictive maintenance models',
+    ['failure_type', 'model_type'],
+    registry=REGISTRY
+)
+
+PREDICTIVE_MAINTENANCE_DATA_POINTS_TOTAL = Gauge(
+    'astraguard_predictive_maintenance_data_points_total',
+    'Total data points available for training',
+    registry=REGISTRY
+)
+
+# ============================================================================
 # Component Health Metrics
 # ============================================================================
 

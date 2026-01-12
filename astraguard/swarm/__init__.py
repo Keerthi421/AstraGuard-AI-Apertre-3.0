@@ -25,6 +25,7 @@ from astraguard.swarm.types import (
 )
 from astraguard.swarm.bus import SwarmMessageBus
 from astraguard.swarm.compressor import StateCompressor, CompressionStats
+from astraguard.swarm.registry import SwarmRegistry, PeerState
 
 __all__ = [
     # Models (Issue #397)
@@ -46,4 +47,7 @@ __all__ = [
     # Compression (Issue #399)
     "StateCompressor",
     "CompressionStats",
+    # Registry (Issue #400)
+    "SwarmRegistry",
+    "PeerState",
 ]

@@ -74,9 +74,9 @@ jobs:
       
       - name: 'Boot Docker Compose Stack'
         run: |
-          docker-compose -f infra/docker/docker-compose.yml up -d
+          docker compose -f infra/docker/docker-compose.yml up -d
           sleep 10
-          docker-compose -f infra/docker/docker-compose.yml ps
+          docker compose -f infra/docker/docker-compose.yml ps
       
       - name: 'Run Full Stack Integration Test'
         run: |
@@ -321,7 +321,7 @@ jobs:
       
       - name: 'Boot Docker Compose Stack'
         run: |
-          docker-compose -f infra/docker/docker-compose.yml up -d
+          docker compose -f infra/docker/docker-compose.yml up -d
           sleep 10
       
       - name: 'Run 90-Minute Extended Stress'

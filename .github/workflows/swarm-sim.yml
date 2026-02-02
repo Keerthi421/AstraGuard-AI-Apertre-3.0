@@ -63,7 +63,7 @@ jobs:
       
       - name: Start Swarm Constellation
         run: |
-          docker compose -f infra/docker/docker-compose.swarm.yml up -d
+          docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
           echo "Waiting for services to be healthy..."
           sleep 10
           docker compose -f infra/docker/docker-compose.swarm.yml ps
@@ -187,7 +187,7 @@ jobs:
       - name: Run Performance Tests
         run: |
           # Start constellation
-          docker compose -f infra/docker/docker-compose.swarm.yml up -d
+          docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
           sleep 15
           
           # Run timing tests

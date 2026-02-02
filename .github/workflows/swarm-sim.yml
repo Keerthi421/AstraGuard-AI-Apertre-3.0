@@ -63,10 +63,10 @@ jobs:
       
       - name: Start Swarm Constellation
         run: |
-          docker-compose -f infra/docker/docker-compose.swarm.yml up -d
+          docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
           echo "Waiting for services to be healthy..."
           sleep 10
-          docker-compose -f infra/docker/docker-compose.swarm.yml ps
+          docker compose -f infra/docker/docker-compose.swarm.yml ps
       
       - name: Wait for Agents Ready
         run: |
@@ -106,7 +106,7 @@ jobs:
           mkdir -p test-artifacts
           
           # Docker compose logs
-          docker-compose -f infra/docker/docker-compose.swarm.yml logs > test-artifacts/docker-compose.log || true
+          docker compose -f infra/docker/docker-compose.swarm.yml logs > test-artifacts/docker-compose.log || true
           
           # Prometheus metrics
           curl -s http://localhost:9090/api/v1/query?query=up > test-artifacts/prometheus-metrics.json || true
@@ -146,7 +146,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker-compose -f infra/docker/docker-compose.swarm.yml down -v || true
+          docker compose -f infra/docker/docker-compose.swarm.yml down -v || true
       
       - name: Test Summary
         if: always()
@@ -187,7 +187,7 @@ jobs:
       - name: Run Performance Tests
         run: |
           # Start constellation
-          docker-compose -f infra/docker/docker-compose.swarm.yml up -d
+          docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
           sleep 15
           
           # Run timing tests

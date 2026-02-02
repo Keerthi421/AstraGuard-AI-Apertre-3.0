@@ -70,9 +70,9 @@ jobs:
       
       - name: Start constellation (docker-compose)
         run: |
-          docker-compose -f infra/docker/docker-compose.swarm.yml up -d
+          docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
           sleep 10
-          docker-compose -f infra/docker/docker-compose.swarm.yml ps
+          docker compose -f infra/docker/docker-compose.swarm.yml ps
       
       - name: Wait for health checks
         run: |
@@ -123,7 +123,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker-compose -f infra/docker/docker-compose.swarm.yml down -v || true
+          docker compose -f infra/docker/docker-compose.swarm.yml down -v || true
 
   e2e-summary:
     name: E2E Test Summary
@@ -212,7 +212,7 @@ jobs:
       
       - name: Start constellation
         run: |
-          docker-compose -f infra/docker/docker-compose.swarm.yml up -d
+          docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
           sleep 15
       
       - name: Wait for health checks
@@ -244,4 +244,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker-compose -f infra/docker/docker-compose.swarm.yml down -v || true
+          docker compose -f infra/docker/docker-compose.swarm.yml down -v || true

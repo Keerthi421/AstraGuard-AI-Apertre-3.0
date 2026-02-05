@@ -1,4 +1,5 @@
 # ===== PRODUCTION DEPENDENCIES (required for runtime) =====
+# Force refresh: 2026-02-05
 
 # Core data processing (numpy, pandas lightweight)
 numpy>=1.26.0

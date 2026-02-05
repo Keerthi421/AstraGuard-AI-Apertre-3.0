@@ -130,31 +130,51 @@ class SwarmSimulatorOrchestrator:
     async def _wait_for_agents_healthy(self, timeout: int = 120):
         """Wait for all agents to pass health checks."""
         start = datetime.now()
+        logger.info(f"Waiting up to {timeout}s for agents to become healthy...")
+        
         async with httpx.AsyncClient(timeout=5) as client:
             while (datetime.now() - start).total_seconds() < timeout:
                 try:
                     healthy = 0
+                    errors = []
                     for agent_id, port in self.agent_ports.items():
                         try:
                             resp = await client.get(f"http://localhost:{port}/health")
                             if resp.status_code == 200:
                                 healthy += 1
-                        except:
-                            pass
+                            else:
+                                errors.append(f"{agent_id}: status {resp.status_code}")
+                        except Exception as e:
+                            errors.append(f"{agent_id}: {str(e)}")
                     
                     if healthy == len(self.agents):
                         logger.info(f"All {len(self.agents)} agents healthy")
                         return
                     
-                    # Only log every 5 seconds to avoid spam
-                    if int((datetime.now() - start).total_seconds()) % 5 == 0:
+                    # Only log every 10 seconds to avoid spam, but log errors
+                    if int((datetime.now() - start).total_seconds()) % 10 == 0:
                         logger.info(f"Waiting for agents: {healthy}/{len(self.agents)} healthy")
+                        if errors:
+                            logger.debug(f"Health check errors: {', '.join(errors[:3])}...")
                         
-                except:
-                    pass
+                except Exception as e:
+                    logger.error(f"Health check loop error: {e}")
                 
                 await asyncio.sleep(1)
         
+        # Dump docker logs on failure
+        try:
+            logger.error("!!! TIMEOUT: Dumping container logs !!!")
+            for agent_id in self.agents:
+                try:
+                    container = self.docker.containers.get(f"astra-{agent_id.lower()}")
+                    logs = container.logs(tail=20).decode('utf-8')
+                    logger.error(f"--- Logs for {agent_id} ---\n{logs}\n----------------")
+                except Exception as e:
+                    logger.error(f"Could not get logs for {agent_id}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to dump logs: {e}")
+
         raise TimeoutError(f"Agents not healthy after {timeout}s")
     
     # ==================== GOLDEN PATH TESTS ====================
